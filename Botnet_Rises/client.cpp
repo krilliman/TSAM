@@ -31,6 +31,13 @@
 
 void listenServer(int serverSocket)
 {
+    time_t rawtime;
+    struct tm * timeinfo;
+
+    time (&rawtime);
+    timeinfo = localtime (&rawtime);
+    char *data = asctime(timeinfo);
+    data[strlen(data)-1] = '\0';
     int nread;                                  // Bytes read from socket
     char buffer[1025];                          // Buffer for reading input
 
@@ -46,9 +53,8 @@ void listenServer(int serverSocket)
        }
        else if(nread > 0)
        {
-          printf("%s\n", buffer);
+            std::cout << "["<<  data << "]:"<< buffer << std::endl;
        }
-       printf("here\n");
     }
 }
 
@@ -59,6 +65,7 @@ int main(int argc, char* argv[])
    int serverSocket;                         // Socket used for server 
    int nwrite;                               // No. bytes written to server
    char buffer[1025];                        // buffer for writing to server
+   char response[1025];
    bool finished;                   
    int set = 1;                              // Toggle for setsockopt
 

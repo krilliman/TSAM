@@ -158,7 +158,7 @@ void closeClient(int clientSocket, fd_set *openSockets, int *maxfds, std::map<in
 void closeServer(int serverSocket, fd_set *openSockets, int *maxfds, std::map<int, Server*> servers)
 {
     // Remove client from the clients list
-    server.erase(serverSocket);
+    servers.erase(serverSocket);
 
     // If this client's socket is maxfds then the next lowest
     // one has to be determined. Socket fd's can be reused by the Kernel,
@@ -174,7 +174,7 @@ void closeServer(int serverSocket, fd_set *openSockets, int *maxfds, std::map<in
 
     // And remove from the list of open sockets.
 
-    FD_CLR(clientSocket, openSockets);
+    FD_CLR(serverSocket, openSockets);
 }
 
 
@@ -184,9 +184,9 @@ void closeServer(int serverSocket, fd_set *openSockets, int *maxfds, std::map<in
 void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, 
                   char *buffer, std::map<int, Client*> clients)
 {
+
   std::vector<std::string> tokens;
   std::string token;
-
   // Split command from client into tokens for parsing
   std::stringstream stream(buffer);
 
@@ -443,7 +443,14 @@ void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> 
                             // only triggers if there is something on the socket for us.
                         else
                         {
-                            std::cout << buffer << std::endl;
+                            time_t rawtime;
+                            struct tm * timeinfo;
+
+                            time (&rawtime);
+                            timeinfo = localtime (&rawtime);
+                            char *data = asctime(timeinfo);
+                            data[strlen(data)-1] = '\0';
+                            std::cout << "["<<  data << "]:"<< buffer << std::endl;
                             clientCommand(client->sock, &openSockets, &maxfds,
                                           buffer, clients);
                         }
