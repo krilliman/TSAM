@@ -8,7 +8,7 @@
 #include <ifaddrs.h>
 #include <errno.h>
 
-int main(int argc, char *argv[])
+void findMyIp(std::map<std::string, std::string> &networkInfo)
 {
     struct ifaddrs *myaddrs, *ifa;
     void *in_addr;
@@ -53,10 +53,19 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("%s: %s\n", ifa->ifa_name, buf);
+            std::string s(ifa->ifa_name);
+            if( s == "eth1") {
+                if(networkInfo.find(s) == networkInfo.end()){
+                    networkInfo[s] = buf;
+                }
+            }
+            else if(s == "wifi0"){
+                if(networkInfo.find(s) == networkInfo.end()){
+                    networkInfo[s] = buf;
+                }
+            }
         }
     }
 
     freeifaddrs(myaddrs);
-    return 0;
 }
