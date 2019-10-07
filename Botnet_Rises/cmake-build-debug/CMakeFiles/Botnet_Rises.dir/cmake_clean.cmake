@@ -1,5 +1,5 @@
 file(REMOVE_RECURSE
-  "CMakeFiles/Botnet_Rises.dir/main.cpp.o"
+  "CMakeFiles/Botnet_Rises.dir/server.cpp.o"
   "Botnet_Rises.pdb"
   "Botnet_Rises"
 )

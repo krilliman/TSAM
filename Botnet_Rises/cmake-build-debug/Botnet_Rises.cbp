@@ -84,7 +84,7 @@
 				</MakeCommands>
 			</Target>
 		</Build>
-		<Unit filename="/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/main.cpp">
+		<Unit filename="/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/server.cpp">
 			<Option target="Botnet_Rises"/>
 		</Unit>
 		<Unit filename="/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/CMakeLists.txt">
