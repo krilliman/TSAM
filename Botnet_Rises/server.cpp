@@ -25,7 +25,7 @@
 #include <sstream>
 #include <thread>
 #include <map>
-
+#include "ip.cpp"
 #include <unistd.h>
 
 // fix SOCK_NONBLOCK for OSX
@@ -257,12 +257,34 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds,
      
 }
 
-void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buffer)
+void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buffer, std::map<int, Server*> servers, std::map<std::string, std::pair<std::string, int>> serversByGroupId)
 {
+    std::vector<std::string> tokens;
+    std::string token;
+
+    // Split command from client into tokens for parsing
+    std::stringstream stream(buffer);
+
+    while(stream >> token)
+        tokens.push_back(token);
+
+    if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
+    {
+        printf("Invalid command format, <01><Command>,< comma separated parameters > <04>\n");
+        return;
+    }
+    else if((tokens[1].compare("SERVERS")) == 0){
+        std::string str;
+        for(auto const & p : serversByGroupId){
+            str += p.first + ", " + p.second.first + ", " + std::to_string(p.second.second) + ";";
+        }
+        send(serverSocket, str.c_str(), str.length(),0);
+        std::cout << "str: " << str << std::endl;
+    }
 
 }
 
-void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> servers)
+void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> servers, std::map<std::string, std::pair<std::string, int>> serversByGroupId)
 {
     bool finished;
     fd_set openSockets;             // Current open sockets
@@ -345,9 +367,9 @@ void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> 
                             // only triggers if there is something on the socket for us.
                         else
                         {
-                            std::cout << buffer << std::endl;
-                            //clientCommand(client->sock, &openSockets, &maxfds,
-                            //             buffer);
+                            //std::cout << buffer << std::endl;
+                            serverCommand(tmpServer->sock, &openSockets, &maxfds,
+                                         buffer, servers, serversByGroupId);
                         }
                     }
                 }
@@ -466,13 +488,39 @@ void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> 
 
 int main(int argc, char* argv[])
 {
+
+
+    /*
+     * Todo 1. make the file expect more parameters ./server <portListen><serverToConnectTo><serverPort>
+     * Todo 2. after you get a connection send the LISTSERVERS,<FROM GROUP ID>  command to the server
+     * Todo 3. begin with inserting the info of the first parameter info the networkInfo (the server that you connected to)
+     * Todo 4. after that try to connect to the rest of the servers that he is connected to,
+     * Todo remember to make a check for the group_ID so you dont try to make a connection twice
+     * Todo 5. when a server successfully connects to your server do the do step 2 and 3 again
+     */
     int listenClientSock;                   // Socket for connections to server
     int listenServerSock;                   // Socket for server connections
     int serverPort = atoi(argv[1]);
     int clientPort = 10000;
+
+    std::map<std::string, std::string> networkInfo;
+    findMyIp(networkInfo);
+
+    for(auto const& p : networkInfo){
+        std::cout << "p.first " << p.first << "p.second " << p.second << std::endl;
+    }
     std::map<int, Client*> clients;         // Lookup table for per Client information
     std::map<int, Server*> servers;         // Lookup table for per Server information
+    std::map<std::string, std::pair<std::string, int>> serversByGroupId;
 
+    std::map<std::string, std::string>::const_iterator pos = networkInfo.find("eth1");
+    if(pos != networkInfo.end()){
+        std::cout << "pos->second" << pos->second << std::endl;
+        serversByGroupId.insert(std::make_pair("P3_GROUP65", std::make_pair(pos->second, serverPort)));
+    }
+    else{
+        printf("eth1 not found\n");
+    }
     if(argc != 2)
     {
         printf("Usage: chat_server <ip port>\n");
@@ -485,10 +533,9 @@ int main(int argc, char* argv[])
     listenServerSock = open_socket(serverPort);                     // Open the socket for the server connections
 
     std::thread t1(handleClients, listenClientSock, clientPort, clients);
-    handleServers(listenServerSock, serverPort, servers);
+    handleServers(listenServerSock, serverPort, servers, serversByGroupId);
 
     t1.join();
 
-    //if(listen(listenServerSock, BACKLOG))
     return 0;
 }

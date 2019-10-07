@@ -55,6 +55,10 @@ void listenServer(int serverSocket)
        {
             std::cout << "["<<  data << "]:"<< buffer << std::endl;
        }
+<<<<<<< HEAD
+=======
+       //printf("here\n");
+>>>>>>> master
     }
 }
 
