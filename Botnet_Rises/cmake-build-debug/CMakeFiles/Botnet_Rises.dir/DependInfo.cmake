@@ -4,7 +4,7 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
-  "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/main.cpp" "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/cmake-build-debug/CMakeFiles/Botnet_Rises.dir/main.cpp.o"
+  "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/server.cpp" "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/cmake-build-debug/CMakeFiles/Botnet_Rises.dir/server.cpp.o"
   )
 set(CMAKE_CXX_COMPILER_ID "GNU")
 

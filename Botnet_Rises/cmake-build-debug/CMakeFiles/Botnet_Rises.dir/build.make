@@ -57,38 +57,38 @@ include CMakeFiles/Botnet_Rises.dir/progress.make
 # Include the compile flags for this target's objects.
 include CMakeFiles/Botnet_Rises.dir/flags.make
 
-CMakeFiles/Botnet_Rises.dir/main.cpp.o: CMakeFiles/Botnet_Rises.dir/flags.make
-CMakeFiles/Botnet_Rises.dir/main.cpp.o: ../main.cpp
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/cmake-build-debug/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/Botnet_Rises.dir/main.cpp.o"
-	/usr/bin/c++  $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -o CMakeFiles/Botnet_Rises.dir/main.cpp.o -c "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/main.cpp"
+CMakeFiles/Botnet_Rises.dir/server.cpp.o: CMakeFiles/Botnet_Rises.dir/flags.make
+CMakeFiles/Botnet_Rises.dir/server.cpp.o: ../server.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir="/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/cmake-build-debug/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/Botnet_Rises.dir/server.cpp.o"
+	/usr/bin/c++  $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -o CMakeFiles/Botnet_Rises.dir/server.cpp.o -c "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/server.cpp"
 
-CMakeFiles/Botnet_Rises.dir/main.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/Botnet_Rises.dir/main.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/main.cpp" > CMakeFiles/Botnet_Rises.dir/main.cpp.i
+CMakeFiles/Botnet_Rises.dir/server.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing CXX source to CMakeFiles/Botnet_Rises.dir/server.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/server.cpp" > CMakeFiles/Botnet_Rises.dir/server.cpp.i
 
-CMakeFiles/Botnet_Rises.dir/main.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/Botnet_Rises.dir/main.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/main.cpp" -o CMakeFiles/Botnet_Rises.dir/main.cpp.s
+CMakeFiles/Botnet_Rises.dir/server.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling CXX source to assembly CMakeFiles/Botnet_Rises.dir/server.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S "/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/server.cpp" -o CMakeFiles/Botnet_Rises.dir/server.cpp.s
 
-CMakeFiles/Botnet_Rises.dir/main.cpp.o.requires:
+CMakeFiles/Botnet_Rises.dir/server.cpp.o.requires:
 
-.PHONY : CMakeFiles/Botnet_Rises.dir/main.cpp.o.requires
+.PHONY : CMakeFiles/Botnet_Rises.dir/server.cpp.o.requires
 
-CMakeFiles/Botnet_Rises.dir/main.cpp.o.provides: CMakeFiles/Botnet_Rises.dir/main.cpp.o.requires
-	$(MAKE) -f CMakeFiles/Botnet_Rises.dir/build.make CMakeFiles/Botnet_Rises.dir/main.cpp.o.provides.build
-.PHONY : CMakeFiles/Botnet_Rises.dir/main.cpp.o.provides
+CMakeFiles/Botnet_Rises.dir/server.cpp.o.provides: CMakeFiles/Botnet_Rises.dir/server.cpp.o.requires
+	$(MAKE) -f CMakeFiles/Botnet_Rises.dir/build.make CMakeFiles/Botnet_Rises.dir/server.cpp.o.provides.build
+.PHONY : CMakeFiles/Botnet_Rises.dir/server.cpp.o.provides
 
-CMakeFiles/Botnet_Rises.dir/main.cpp.o.provides.build: CMakeFiles/Botnet_Rises.dir/main.cpp.o
+CMakeFiles/Botnet_Rises.dir/server.cpp.o.provides.build: CMakeFiles/Botnet_Rises.dir/server.cpp.o
 
 
 # Object files for target Botnet_Rises
 Botnet_Rises_OBJECTS = \
-"CMakeFiles/Botnet_Rises.dir/main.cpp.o"
+"CMakeFiles/Botnet_Rises.dir/server.cpp.o"
 
 # External object files for target Botnet_Rises
 Botnet_Rises_EXTERNAL_OBJECTS =
 
-Botnet_Rises: CMakeFiles/Botnet_Rises.dir/main.cpp.o
+Botnet_Rises: CMakeFiles/Botnet_Rises.dir/server.cpp.o
 Botnet_Rises: CMakeFiles/Botnet_Rises.dir/build.make
 Botnet_Rises: CMakeFiles/Botnet_Rises.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir="/mnt/c/Users/Kristmann Ingi/Documents/Uni/Tölvusamskipti/Botnet_Rises/cmake-build-debug/CMakeFiles" --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable Botnet_Rises"
@@ -99,7 +99,7 @@ CMakeFiles/Botnet_Rises.dir/build: Botnet_Rises
 
 .PHONY : CMakeFiles/Botnet_Rises.dir/build
 
-CMakeFiles/Botnet_Rises.dir/requires: CMakeFiles/Botnet_Rises.dir/main.cpp.o.requires
+CMakeFiles/Botnet_Rises.dir/requires: CMakeFiles/Botnet_Rises.dir/server.cpp.o.requires
 
 .PHONY : CMakeFiles/Botnet_Rises.dir/requires
 

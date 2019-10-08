@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <map>
 #include <vector>
+#include <fcntl.h>
+#include <stack>
 
 #include <iostream>
 #include <sstream>
@@ -93,8 +95,8 @@ int open_socket(int portno)
 #else
    if((sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
    {
-     perror("Failed to open socket");
-    return(-1);
+        perror("Failed to open socket");
+        return(-1);
    }
 #endif
 
@@ -103,7 +105,7 @@ int open_socket(int portno)
 
    if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
    {
-      perror("Failed to set SO_REUSEADDR:");
+        perror("Failed to set SO_REUSEADDR:");
    }
    set = 1;
 #ifdef __APPLE__     
@@ -176,9 +178,6 @@ void closeServer(int serverSocket, fd_set *openSockets, int *maxfds, std::map<in
 
     FD_CLR(serverSocket, openSockets);
 }
-
-
-
 // Process command from client on the server
 
 void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, 
@@ -284,10 +283,10 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
 
 }
 
-void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> servers, std::map<std::string, std::pair<std::string, int>> serversByGroupId)
+void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> servers, std::map<std::string, std::pair<std::string, int>> serversByGroupId, fd_set &openSockets)
 {
     bool finished;
-    fd_set openSockets;             // Current open sockets
+    //fd_set openSockets;             // Current open sockets
     fd_set readSockets;             // Socket list for select()
     fd_set exceptSockets;           // Exception socket list
     int maxfds;                     // Passed to select() as max fd in set
@@ -297,8 +296,7 @@ void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> 
     char buffer[1025];              // buffer for reading from clients
 
     printf("Listening on port: %d for Servers\n", serverPort);
-    printf("listenServerSock = %d", listenServerSock);
-
+    std::cout << "test after listenServerSock: " << listenServerSock << std::endl;
     if(listen(listenServerSock, BACKLOG) < 0)
     {
         printf("Listen failed on port %s\n", serverPort);
@@ -343,7 +341,6 @@ void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> 
                 // Decrement the number of sockets waiting to be dealt with
                 n--;
                 printf("Servers connected on server: %d\n", servers.size());
-                printf("value of n = %d\n", n);
                 //printf("size of map: %d \n", servers.size());
             }
             while(n-- > 0)
@@ -486,10 +483,96 @@ void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> 
 
 }
 
+void handleFirstConnection(const char* ipAddress, const char* port, int listenServersPort, fd_set &openSockets, std::map<std::string, int> &serversSockets, std::map<std::string, std::pair<std::string, int>> &serversByGroupId)
+{
+    struct sockaddr_in serv_Addr;
+    struct sockaddr_in sk_addr;   // address settings for bind()
+    struct hostent *server;
+    int tmpSocket;
+    int set = 1;
+    char buffer[1025];
+    int nwrite;
+    int nread;
+
+    server = gethostbyname(ipAddress);
+    bzero((char*) &serv_Addr, sizeof(serv_Addr));
+    serv_Addr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr, (char *)&serv_Addr.sin_addr.s_addr, server->h_length);
+    serv_Addr.sin_port = htons(atoi(port));
+
+
+    tmpSocket = socket(AF_INET, SOCK_STREAM , 0);
+    if(setsockopt(tmpSocket, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
+    {
+        perror("setsockopt failed: ");
+    }
+    memset(&sk_addr, 0, sizeof(sk_addr));
+
+    sk_addr.sin_family      = AF_INET;
+    sk_addr.sin_addr.s_addr = INADDR_ANY;
+    sk_addr.sin_port        = htons(listenServersPort);
+
+    // Bind to socket to listen for connections from clients
+
+    if(bind(tmpSocket, (struct sockaddr *)&sk_addr, sizeof(sk_addr)) < 0)
+    {
+        perror("Failed to bind to socket:");
+        exit(0);
+    }
+
+    if(connect(tmpSocket, (struct sockaddr*)&serv_Addr, sizeof(serv_Addr)) < 0)
+    {
+        std::cout << "failed to connect to server at: " << ntohs(serv_Addr.sin_addr.s_addr) << std::endl;
+        perror("could not connect ");
+        exit(0);
+    }
+
+    bzero(buffer, sizeof(buffer));
+    strcpy(buffer, "01 SERVERS 04");
+    nwrite = send(tmpSocket, buffer, strlen(buffer), 0);
+    memset(buffer, 0, sizeof(buffer));
+    nread = read(tmpSocket, buffer, sizeof(buffer));
+
+    std::stringstream stream(buffer);
+    std::string tmp;
+    std::stack<std::string> s;
+    bool firstFound = false;
+    while(stream >> tmp){
+        char lastOne = tmp[tmp.length()-1];
+        std::string newVal = tmp.substr(0,tmp.length()-1)
+        if(lastOne == ';'){
+            std::string ip = s.top();
+            s.pop();
+            std::string groupName = s.top();
+            s.pop();
+            if(!firstFound){
+                serversByGroupId.insert(std::make_pair(groupName, std::make_pair(ip, stoi(newVal))));
+                serversSockets.insert(std::make_pair(groupName, stoi(newVal)));
+                firstFound = true;
+            }
+            /*
+             * ToDo need to save the following connections and try to make a connection to them
+             */
+        }
+        else{
+            s.push(newVal);
+        }
+    }
+
+    /*
+     * ToDo need to process the message and insert to the std::map<std::string, int> serversSockets
+     * ToDo the right values
+     */
+    FD_SET(tmpSocket, &openSockets);
+}
+
 int main(int argc, char* argv[])
 {
-
-
+    if(argc != 4)
+    {
+        printf("Usage: chat_server <port destIp destPort>\n");
+        exit(0);
+    }
     /*
      * Todo 1. make the file expect more parameters ./server <portListen><serverToConnectTo><serverPort>
      * Todo 2. after you get a connection send the LISTSERVERS,<FROM GROUP ID>  command to the server
@@ -502,40 +585,47 @@ int main(int argc, char* argv[])
     int listenServerSock;                   // Socket for server connections
     int serverPort = atoi(argv[1]);
     int clientPort = 10000;
-
+    fd_set openSockets;
     std::map<std::string, std::string> networkInfo;
+    std::map<std::string, int> serversSockets;
+    std::map<std::string, std::pair<std::string, int>> serversByGroupId;
     findMyIp(networkInfo);
 
-    for(auto const& p : networkInfo){
-        std::cout << "p.first " << p.first << "p.second " << p.second << std::endl;
-    }
+    listenServerSock = open_socket(serverPort);                     // Open the socket for the server connections
+
+    handleFirstConnection(argv[2], argv[3], serverPort, openSockets, serversSockets, serversByGroupId);
+
     std::map<int, Client*> clients;         // Lookup table for per Client information
     std::map<int, Server*> servers;         // Lookup table for per Server information
-    std::map<std::string, std::pair<std::string, int>> serversByGroupId;
 
     std::map<std::string, std::string>::const_iterator pos = networkInfo.find("eth1");
     if(pos != networkInfo.end()){
-        std::cout << "pos->second" << pos->second << std::endl;
         serversByGroupId.insert(std::make_pair("P3_GROUP65", std::make_pair(pos->second, serverPort)));
     }
     else{
         printf("eth1 not found\n");
     }
-    if(argc != 2)
-    {
-        printf("Usage: chat_server <ip port>\n");
-        exit(0);
-    }
 
     // Setup socket for server to listen to
 
     listenClientSock = open_socket(clientPort);                     // Open the socket for the client connections
-    listenServerSock = open_socket(serverPort);                     // Open the socket for the server connections
 
-    std::thread t1(handleClients, listenClientSock, clientPort, clients);
-    handleServers(listenServerSock, serverPort, servers, serversByGroupId);
 
-    t1.join();
+    for(auto const& p : serversByGroupId){
+        std::cout << "p first " << p.first << "  p.second.first " << p.second.first << "  p.second.second " << p.second.second << std::endl;
+    }
+
+    std::thread clientThread(handleClients, listenClientSock, clientPort, clients);
+    //std::thread serverThread(handleServers,listenServerSock, serverPort, servers, serversByGroupId, openSockets);
+    handleServers(listenServerSock, serverPort, servers, serversByGroupId, openSockets);
+
+    /*
+     * ToDo Here should come a while loop for the handling the messages
+     * ToDo to other servers.
+     */
+
+    //serverThread.join();
+    //clientThread.join();
 
     return 0;
 }

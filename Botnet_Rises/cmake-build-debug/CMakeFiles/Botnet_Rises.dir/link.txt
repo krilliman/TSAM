@@ -1,1 +1,1 @@
-/usr/bin/c++  -g   CMakeFiles/Botnet_Rises.dir/main.cpp.o  -o Botnet_Rises 
+/usr/bin/c++  -g   CMakeFiles/Botnet_Rises.dir/server.cpp.o  -o Botnet_Rises 
