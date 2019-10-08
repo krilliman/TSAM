@@ -77,7 +77,7 @@ public:
 // Open socket for specified port.
 //
 // Returns -1 if unable to create the socket for any reason.
-
+fd_set openSockets;
 int open_socket(int portno)
 {
    struct sockaddr_in sk_addr;   // address settings for bind()
@@ -283,7 +283,7 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
 
 }
 
-void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> servers, std::map<std::string, std::pair<std::string, int>> serversByGroupId, fd_set &openSockets)
+void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> servers, std::map<std::string, std::pair<std::string, int>> serversByGroupId)
 {
     bool finished;
     //fd_set openSockets;             // Current open sockets
@@ -305,7 +305,6 @@ void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> 
     else
         // Add listen socket to socket set we are monitoring
     {
-        FD_ZERO(&openSockets);
         FD_SET(listenServerSock, &openSockets);
         maxfds = listenServerSock;
     }
@@ -476,7 +475,7 @@ void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> 
 
 }
 
-void handleFirstConnection(const char* ipAddress, const char* port, int listenServersPort, fd_set &openSockets, std::map<std::string, int> &serversSockets, std::map<std::string, std::pair<std::string, int>> &serversByGroupId)
+void handleFirstConnection(const char* ipAddress, const char* port, int listenServersPort, std::map<std::string, int> &serversSockets, std::map<std::string, std::pair<std::string, int>> &serversByGroupId)
 {
     struct sockaddr_in serv_Addr;
     struct sockaddr_in sk_addr;   // address settings for bind()
@@ -532,7 +531,7 @@ void handleFirstConnection(const char* ipAddress, const char* port, int listenSe
     bool firstFound = false;
     while(stream >> tmp){
         char lastOne = tmp[tmp.length()-1];
-        std::string newVal = tmp.substr(0,tmp.length()-1)
+        std::string newVal = tmp.substr(0,tmp.length()-1);
         if(lastOne == ';'){
             std::string ip = s.top();
             s.pop();
@@ -540,7 +539,7 @@ void handleFirstConnection(const char* ipAddress, const char* port, int listenSe
             s.pop();
             if(!firstFound){
                 serversByGroupId.insert(std::make_pair(groupName, std::make_pair(ip, stoi(newVal))));
-                serversSockets.insert(std::make_pair(groupName, stoi(newVal)));
+                serversSockets.insert(std::make_pair(groupName, tmpSocket));
                 firstFound = true;
             }
             /*
@@ -556,6 +555,7 @@ void handleFirstConnection(const char* ipAddress, const char* port, int listenSe
      * ToDo need to process the message and insert to the std::map<std::string, int> serversSockets
      * ToDo the right values
      */
+    FD_ZERO(&openSockets);
     FD_SET(tmpSocket, &openSockets);
 }
 
@@ -578,7 +578,8 @@ int main(int argc, char* argv[])
     int listenServerSock;                   // Socket for server connections
     int serverPort = atoi(argv[1]);
     int clientPort = 10000;
-    fd_set openSockets;
+    char buffer[1025];
+    //fd_set openSockets;
     std::map<std::string, std::string> networkInfo;
     std::map<std::string, int> serversSockets;
     std::map<std::string, std::pair<std::string, int>> serversByGroupId;
@@ -586,7 +587,7 @@ int main(int argc, char* argv[])
 
     listenServerSock = open_socket(serverPort);                     // Open the socket for the server connections
 
-    handleFirstConnection(argv[2], argv[3], serverPort, openSockets, serversSockets, serversByGroupId);
+    handleFirstConnection(argv[2], argv[3], serverPort, serversSockets, serversByGroupId);
 
     std::map<int, Client*> clients;         // Lookup table for per Client information
     std::map<int, Server*> servers;         // Lookup table for per Server information
@@ -609,16 +610,36 @@ int main(int argc, char* argv[])
     }
 
     std::thread clientThread(handleClients, listenClientSock, clientPort, clients);
-    //std::thread serverThread(handleServers,listenServerSock, serverPort, servers, serversByGroupId, openSockets);
-    handleServers(listenServerSock, serverPort, servers, serversByGroupId, openSockets);
+    std::thread serverThread(handleServers,listenServerSock, serverPort, servers, serversByGroupId);
+    //handleServers(listenServerSock, serverPort, servers, serversByGroupId);
 
     /*
      * ToDo Here should come a while loop for the handling the messages
      * ToDo to other servers.
      */
 
-    //serverThread.join();
-    //clientThread.join();
+    for(auto const& p : serversSockets){
+        std::cout << "p.first" << p.first << " p.second " << p.second << std::endl;
+    }
+
+    bool finished = false;
+
+    while(!finished){
+        bzero(buffer, sizeof(buffer));
+
+        fgets(buffer, sizeof(buffer), stdin);
+
+        int testSock = serversSockets.find("P3_GROUP65_TEST")->second;
+        int nwrite = send(testSock, buffer, strlen(buffer),0);
+
+        if(nwrite  == -1)
+        {
+            perror("send() to server failed: ");
+            finished = true;
+        }
+    }
+    serverThread.join();
+    clientThread.join();
 
     return 0;
 }
