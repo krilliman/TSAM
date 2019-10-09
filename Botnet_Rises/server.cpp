@@ -180,8 +180,7 @@ void closeServer(int serverSocket, fd_set *openSockets, int *maxfds, std::map<in
 }
 // Process command from client on the server
 
-void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, 
-                  char *buffer, std::map<int, Client*> clients)
+void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buffer, std::map<int, Client*> clients, std::map<int, Server*> servers, std::map<std::string, std::pair<std::string,int>> serversByGroupId)
 {
 
   std::vector<std::string> tokens;
@@ -201,26 +200,22 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds,
       // Close the socket, and leave the socket handling
       // code to deal with tidying up clients etc. when
       // select() detects the OS has torn down the connection.
- 
       closeClient(clientSocket, openSockets, maxfds, clients);
   }
-  else if(tokens[0].compare("WHO") == 0)
-  {
-     std::cout << "Who is logged on" << std::endl;
-     std::string msg;
-
-     for(auto const& names : clients)
-     {
-        msg += names.second->name + ",";
-
-     }
+  else if((tokens[1].compare("LISTSERVERS")) == 0){
+    std::string str;
+    for(auto const & p : serversByGroupId){
+    str += p.first + ", " + p.second.first + ", " + std::to_string(p.second.second) + ";";
+    }
+    send(clientSocket, str.c_str(), str.length(),0);
+    std::cout << "str: " << str << std::endl;
+  }
      // Reducing the msg length by 1 loses the excess "," - which
      // granted is totally cheating.
-     send(clientSocket, msg.c_str(), msg.length()-1, 0);
 
-  }
   // This is slightly fragile, since it's relying on the order
   // of evaluation of the if statement.
+  /*
   else if((tokens[0].compare("MSG") == 0) && (tokens[1].compare("ALL") == 0))
   {
       std::string msg;
@@ -248,7 +243,7 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds,
               send(pair.second->sock, msg.c_str(), msg.length(),0);
           }
       }
-  }
+  }*/
   else
   {
       std::cout << "Unknown command from client:" << buffer << std::endl;
@@ -375,7 +370,7 @@ void handleServers(int listenServerSock, int serverPort, std::map<int ,Server*> 
     }
 
 }
-void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> clients)
+void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> clients, std::map<int, Server*> servers, std::map<std::string, std::pair<std::string,int>> serversByGroupId)
 {
     bool finished;
     fd_set openSockets;             // Current open sockets
@@ -471,7 +466,7 @@ void handleClients(int listenClientSock, int clientPort, std::map<int, Client*> 
                             data[strlen(data)-1] = '\0';
                             std::cout << "["<<  data << "]:"<< buffer << std::endl;
                             clientCommand(client->sock, &openSockets, &maxfds,
-                                          buffer, clients);
+                                          buffer, clients, servers, serversByGroupId);
                         }
                     }
                 }
@@ -539,7 +534,7 @@ void handleFirstConnection(const char* ipAddress, const char* port, int listenSe
     bool firstFound = false;
     while(stream >> tmp){
         char lastOne = tmp[tmp.length()-1];
-        std::string newVal = tmp.substr(0,tmp.length()-1)
+        std::string newVal = tmp.substr(0,tmp.length()-1);
         if(lastOne == ';'){
             std::string ip = s.top();
             s.pop();
@@ -568,10 +563,17 @@ void handleFirstConnection(const char* ipAddress, const char* port, int listenSe
 
 int main(int argc, char* argv[])
 {
-    if(argc != 4)
+    if(argc != 4 )
     {
-        printf("Usage: chat_server <port destIp destPort>\n");
-        exit(0);
+        if(argc = 1)
+        {
+
+        }
+        else{
+            printf("Usage: chat_server <port destIp destPort>\n");
+            exit(0);
+
+        }
     }
     /*
      * Todo 1. make the file expect more parameters ./server <portListen><serverToConnectTo><serverPort>
@@ -592,8 +594,10 @@ int main(int argc, char* argv[])
     findMyIp(networkInfo);
 
     listenServerSock = open_socket(serverPort);                     // Open the socket for the server connections
-
-    handleFirstConnection(argv[2], argv[3], serverPort, openSockets, serversSockets, serversByGroupId);
+    if(argc == 4)
+    {
+     handleFirstConnection(argv[2], argv[3], serverPort, openSockets, serversSockets, serversByGroupId);
+    }
 
     std::map<int, Client*> clients;         // Lookup table for per Client information
     std::map<int, Server*> servers;         // Lookup table for per Server information
@@ -615,7 +619,7 @@ int main(int argc, char* argv[])
         std::cout << "p first " << p.first << "  p.second.first " << p.second.first << "  p.second.second " << p.second.second << std::endl;
     }
 
-    std::thread clientThread(handleClients, listenClientSock, clientPort, clients);
+    std::thread clientThread(handleClients, listenClientSock, clientPort, clients, servers, serversByGroupId);
     //std::thread serverThread(handleServers,listenServerSock, serverPort, servers, serversByGroupId, openSockets);
     handleServers(listenServerSock, serverPort, servers, serversByGroupId, openSockets);
 
