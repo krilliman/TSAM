@@ -1,2 +1,8 @@
 /mnt/c/users/'Kristmann Ingi'/documents/uni/tölvusamskipti/botnet_rises
 /mnt/c/users/'Kristmann Ingi'/documents/uni/TSAMTMP/TSAM/botnet_rises
+
+
+
+
+
+studnum virkar ekki fyrsta local command á server sem að tengist öðrum server.

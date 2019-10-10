@@ -56,16 +56,19 @@ class Server
 {
 public:
     int sock;              // socket of client connection
-    std::string name;           // Limit length of name of client's user
+    std::string name = "";           // Limit length of name of client's user
+    std::string ip = "";
+    int port = 0;
 
     Server(int socket) : sock(socket){}
 
     ~Server(){}            // Virtual destructor defined for base class
 };
 
-void handleConnection(const char* ipAddress, const char* port, int listenServersPort);
-void handleListServer(int socket, int listenServersPort, bool incomingConnection);
-void handleConnection(const char* ipAddress, const char* port, int listenServersPort);
+void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds);
+void handleListServer(int socket, int listenServersPort, bool incomingConnection, int *maxfds);
+void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds);
+void serverList(int socket, std::string groupName, char *buffer);
 
 
 // Note: map is not necessarily the most efficient method to use here,
@@ -83,11 +86,10 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
 fd_set openSockets;
 std::map<std::string, int> serversSockets;
 std::map<std::string, std::pair<std::string, int>> serversByGroupId;
-std::map<int, std::string> nameByPort;
 std::map<std::pair<std::string,int>,int> leaveMap;
 std::map<int, Client*> clients;         // Lookup table for per Client information
 std::map<int, Server*> servers;         // Lookup table for per Server information
-
+std::string myName;
 
 int open_socket(int portno)
 {
@@ -171,12 +173,22 @@ void closeClient(int clientSocket, fd_set *openSockets, int *maxfds, std::map<in
 void closeServer(int serverSocket, int *maxfds)
 {
     // Remove client from the clients list
-    std::string groupName = nameByPort.find(serverSocket)->second;
+    //std::string groupName = nameByPort.find(serverSocket)->second;
+    std::cout << "test1 " << std::endl;
+    std::cout << "serverSocket: " << serverSocket << std::endl;
+    if(servers.find(serverSocket) == servers.end()){
+        std::cout << "server not found " << std::endl;
+    }
+    std::string groupName = servers.find(serverSocket)->second->name;
+    std::cout << "test2 " << std::endl;
+    auto p = std::make_pair(servers.find(serverSocket)->second->ip, servers.find(serverSocket)->second->port);
+    std::cout << "test3 " << std::endl;
+
     std::cout << "groupName: " << groupName << std::endl;
     serversSockets.erase(groupName);
     serversByGroupId.erase(groupName);
-    nameByPort.erase(serverSocket);
     servers.erase(serverSocket);
+    leaveMap.erase(p);
 
     // If this client's socket is maxfds then the next lowest
     // one has to be determined. Socket fd's can be reused by the Kernel,
@@ -198,77 +210,80 @@ void closeServer(int serverSocket, int *maxfds)
 
 void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buffer)
 {
-  std::vector<std::string> tokens;
-  std::string token;
+    std::vector<std::string> tokens;
+    std::string token;
 
-  // Split command from client into tokens for parsing
-  std::stringstream stream(buffer);
+    // Split command from client into tokens for parsing
+    std::stringstream stream(buffer);
 
-  while(stream >> token)
-      tokens.push_back(token);
+    while(stream >> token)
+        tokens.push_back(token);
 
-  if((tokens[0].compare("CONNECT") == 0) && (tokens.size() == 2))
-  {
-     clients[clientSocket]->name = tokens[1];
-  }
-  else if(tokens[0].compare("LEAVE") == 0)
-  {
-      // Close the socket, and leave the socket handling
-      // code to deal with tidying up clients etc. when
-      // select() detects the OS has torn down the connection.
- 
-      closeClient(clientSocket, openSockets, maxfds, clients);
-  }
-  else if(tokens[0].compare("WHO") == 0)
-  {
-     std::cout << "Who is logged on" << std::endl;
-     std::string msg;
+    if((tokens[0].compare("SENDMSG") == 0) && (tokens.size() == 3))
+    {
+        if(tokens[1] == myName) //Checking if the message was meant for this server or not
+        {
+            std::cout << "This message was sent to me and the message is: " << tokens[2] << std::endl;
 
-     for(auto const& names : clients)
-     {
-        msg += names.second->name + ",";
+        }
+        else
+        {
+            int socket = 0;
+            socket = serversSockets.find(tokens[1])->second; // if it finds the connection on our serverlist
+            if(socket != 0)
+            {
+                std::cout << "Need to implement message function here";
+            }
+            else // Sends to our servers to see if they have the server or not.
+            {
+                std::cout << "I'm not connected to that group.";
+            }
+        }
+    }
+    else if(tokens[0].compare("LISTSERVERS") == 0)
+    {
+        serverList(clientSocket,myName,buffer);
+        // Reducing the msg length by 1 loses the excess "," - which
+        // granted is totally cheating.
+        // This is slightly fragile, since it's relying on the order
+        // of evaluation of the if statement.
+    }
+    else
+    {
+        std::cout << "Unknown command from client:" << buffer << std::endl;
+    }
 
-     }
-     // Reducing the msg length by 1 loses the excess "," - which
-     // granted is totally cheating.
-     send(clientSocket, msg.c_str(), msg.length()-1, 0);
-
-  }
-  // This is slightly fragile, since it's relying on the order
-  // of evaluation of the if statement.
-  else if((tokens[0].compare("MSG") == 0) && (tokens[1].compare("ALL") == 0))
-  {
-      std::string msg;
-      for(auto i = tokens.begin()+2;i != tokens.end();i++) 
-      {
-          msg += *i + " ";
-      }
-
-      for(auto const& pair : clients)
-      {
-          send(pair.second->sock, msg.c_str(), msg.length(),0);
-      }
-  }
-  else if(tokens[0].compare("MSG") == 0)
-  {
-      for(auto const& pair : clients)
-      {
-          if(pair.second->name.compare(tokens[1]) == 0)
-          {
-              std::string msg;
-              for(auto i = tokens.begin()+2;i != tokens.end();i++) 
-              {
-                  msg += *i + " ";
-              }
-              send(pair.second->sock, msg.c_str(), msg.length(),0);
-          }
-      }
-  }
-  else
-  {
-      std::cout << "Unknown command from client:" << buffer << std::endl;
-  }
-     
+}
+void serverList(int socket, std::string groupName, char *buffer)
+{
+    std::string msg;
+    int sendSocket;
+    sendSocket = serversSockets.find(groupName)->second;
+    if(groupName == myName)
+    {
+        for(auto const & p : serversByGroupId){
+            msg += p.first + ", " + p.second.first + ", " + std::to_string(p.second.second) + "; ";
+        }
+        if(msg.length() == 0)
+        {
+            std::cout << "There are no server connected to me." << std::endl;
+            msg = "The server list is empty ";
+        }
+        send(socket, msg.c_str(), msg.length()-1, 0);
+    }
+    else if(sendSocket != 0)
+    {
+        char response[1025];
+        int nread;
+        send(sendSocket, buffer, strlen(buffer), 0);
+        nread = read(sendSocket,response,strlen(response));
+        send(socket, response, strlen(response),0);
+    }
+    else
+    {
+        msg = "I am not connected to that server, please try a different name. ";
+        send(socket, msg.c_str(), msg.length()-1, 0);
+    }
 }
 
 void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buffer)
@@ -289,14 +304,24 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
         return;
     }
     else if((tokens[1].compare("SERVERS")) == 0){
+        serverList(serverSocket,myName,buffer);
+    }
+    else if((tokens[1].compare("LISTSERVERS")) == 0){
+        serverList(serverSocket,tokens[1],buffer);
+    }
+    /*
+    else if((tokens[1].compare("SERVERS")) == 0){
         std::string str;
         for(auto const & p : serversByGroupId){
             str += p.first + ", " + p.second.first + ", " + std::to_string(p.second.second) + "; ";
             std::cout << "str in loop" << str << std::endl;
         }
+        std::cout << "serverSocket before the test of str str += serverSocket; line 297, sock: " << serverSocket << std::endl;
+        //str += std::to_string(serverSocket);                                    //this is just a test to see if the socket match
         send(serverSocket, str.c_str(), str.length(),0);
         std::cout << "str: " << str << std::endl;
     }
+     */
 
 }
 
@@ -322,25 +347,32 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
         // Add listen socket to socket set we are monitoring
     {
         FD_SET(listenServerSock, &openSockets);
-        *maxfds = listenServerSock;
-
+        if(listenServerSock > *maxfds){
+            std::cout << "maxfds in listensockbiggerthen: " << *maxfds << std::endl;
+            *maxfds = listenServerSock;
+        }
     }
     finished = false;
-
+    for(int i = 1; i <= *maxfds; i++){
+        std::cout << "i: " << i << std::endl;
+        if(FD_ISSET(i, &openSockets)){
+            std::cout << "i: " << i << " is in opensockets" << std::endl;
+        }
+    }
     while(!finished) {
         // Get modifiable copy of readSockets
         readSockets = exceptSockets = openSockets;
         memset(buffer, 0, sizeof(buffer));
         // Look at sockets and see which ones have something to be read()
+        std::cout << "maxfds: " << *maxfds << std::endl;
         int n = select(*maxfds + 1, &readSockets, NULL, &exceptSockets, NULL);
-
+        std::cout << "value of n after the select " << n << std::endl;
         if (n < 0) {
             perror("select failed - closing down\n");
             finished = true;
         } else {
             // First, accept  any new connections to the server on the listening socket
-            if (FD_ISSET(listenServerSock,
-                         &readSockets))                              // Tests to se if listenSock is part of readSockets
+            if (FD_ISSET(listenServerSock,&readSockets))                              // Tests to se if listenSock is part of readSockets
             {
                 serverSock = accept(listenServerSock, (struct sockaddr *) &server,
                                     &serverLen);                                        // Extracts the first connection request on the queue of pending connections
@@ -353,10 +385,10 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
 
                 // create a new server to store information.
                 servers[serverSock] = new Server(serverSock);
+                std::cout << "this it the serverSock for the connecting server: " << serverSock << std::endl;
                 // this is just to fill in the maps for the incoming server
                 // could be a better way but since we need the get the server name
                 // i have no other idea how to get it
-                //handleListServer(serverSock, 0, true);
                 // ToDo need to figure out a way to do this properly
                 // ToDo when i did this like above we got the error of sending 01 SERVERS 04 between 2 servers
                 // Decrement the number of sockets waiting to be dealt with
@@ -385,10 +417,22 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                             // only triggers if there is something on the socket for us.
                         else
                         {
-                            //std::cout << buffer << std::endl;
-                            serverCommand(tmpServer->sock, &openSockets, maxfds,
-                                         buffer);
+                            if(strlen(buffer) != 0){
+                                std::cout << "buffer on line 408: " << buffer << std::endl;
+                                std::cout << "n: " << n << std::endl;
+                                serverCommand(tmpServer->sock, &openSockets, maxfds,
+                                              buffer);
+                            }
                         }
+                    }
+                }
+                if(serverSock > *maxfds){
+                    *maxfds = serverSock;
+                }
+                if(servers.find(serverSock) != servers.end()){
+                    if(servers[serverSock]->name == ""){
+                        std::cout << "sending handleListServer for incoming connection, line 413" << std::endl;
+                        handleListServer(serverSock, 0, true, maxfds);
                     }
                 }
             }
@@ -497,8 +541,9 @@ void handleClients(int listenClientSock, int clientPort, int *maxfds)
 
 }
 
-void localServerCommand(const char* buffer, int serverPort, int &maxfds)
+void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 {
+    std::cout << "local commands " << std::endl;
     std::vector<std::string> tokens;
     std::string token;
 
@@ -519,19 +564,22 @@ void localServerCommand(const char* buffer, int serverPort, int &maxfds)
         // just so we can get the functionality working
         if(tokens.size() != 5){
             printf("Invalid format of LEAVE <01> LEAVE, IP, Port <04>");
+            return;
         }
         std::string ip = tokens[2];
         int port = stoi(tokens[3]);
         if(leaveMap.find(std::make_pair(ip,port)) == leaveMap.end()){
             std::cout << "pair <" << ip << "," << port << "> not found in map" << std::endl;
         }
+
         int sockToDisconnect = leaveMap.find(std::make_pair(ip,port))->second;
         if(FD_ISSET(sockToDisconnect, &openSockets))
         {
+            std::cout << "before close " << std::endl;
             int closeVal = close(sockToDisconnect);
             if(closeVal != -1){
                 std::cout << "closeval: " << closeVal << std::endl;
-                closeServer(sockToDisconnect, &maxfds);
+                closeServer(sockToDisconnect, maxfds);
             }
         }
         else{
@@ -542,7 +590,6 @@ void localServerCommand(const char* buffer, int serverPort, int &maxfds)
             std::cout << "p.first.second " << p.first.second <<  std::endl;
             std::cout << "p.second " << p.second <<  std::endl << std::endl;
         }
-
         /*
         std::cout << "sock: " << sockToDisconnect  << std::endl;
         for(auto const& p : leaveMap){
@@ -556,17 +603,29 @@ void localServerCommand(const char* buffer, int serverPort, int &maxfds)
     else if((tokens[1].compare("CONNECTLOCAL") == 0))
     {
         std::cout << "connection to local port " << tokens[2] << std::endl;
-        handleConnection("127.0.0.1", tokens[2].c_str(), serverPort);
-
+        handleConnection("127.0.0.1", tokens[2].c_str(), serverPort, maxfds);
+    }
+    else if((tokens[1].compare("LOCALSERVERS") == 0))
+    {
         std::cout << "" << std::endl;
         std::cout << "CURRENT SERVERS" << std::endl;
-        std::cout << "" << std::endl;
+        std::cout << "serversByGroupID" << std::endl;
         for(auto const& p : serversByGroupId){
             std::cout << "p.first: " << p.first << std::endl;
             std::cout << "p.second.first: " << p.second.first << std::endl;
             std::cout << "p.second.second: " << p.second.second << std::endl;
             std::cout << "" << std::endl;
         }
+        std::cout << "" << std::endl;
+        std::cout << "CURRENT SERVERS" << std::endl;
+        std::cout << "leaveMap" << std::endl;
+        for(auto const& p : leaveMap){
+            std::cout << "p.first.first: " << p.first.first << std::endl;
+            std::cout << "p.first.second: " << std::to_string(p.first.second) << std::endl;
+            std::cout << "p.second: " << std::to_string(p.second) << std::endl;
+            std::cout << "" << std::endl;
+        }
+        std::cout << "size of servers: " << servers.size() << std::endl << std::endl;
     }
     else{
         std::cout << "no command found, TOKEN: " << tokens[1] << std::endl;
@@ -574,28 +633,24 @@ void localServerCommand(const char* buffer, int serverPort, int &maxfds)
 
 }
 
-void handleListServer(int socket, int listenServersPort, bool incomingConnection)
+void handleListServer(int socket, int listenServersPort, bool incomingConnection, int *maxfds)
 {
     int nwrite;
     int nread;
     char buffer[1025];
     bzero(buffer, sizeof(buffer));
     strcpy(buffer, "01 SERVERS 04");
-    std::cout << "buffer before send " << buffer << std::endl;
+    std::cout << "buffer BEFORE read " << buffer << std::endl;
     nwrite = send(socket, buffer, strlen(buffer), 0);
     memset(buffer, 0, sizeof(buffer));
     nread = read(socket, buffer, sizeof(buffer));
-    std::cout << "buffer before read " << buffer << std::endl;
-    std::cout << "nread " << nread << std::endl;
-
+    std::cout << "buffer after read " << buffer << std::endl;
     std::stringstream stream(buffer);
     std::string tmp;
     std::stack<std::string> s;
     bool firstFound = false;
 
-    std::cout << "buffer: " << buffer << std::endl;
     while(stream >> tmp){
-        std::cout << "tmp: " << tmp << std::endl;
         char lastOne = tmp[tmp.length()-1];
         std::string newVal = tmp.substr(0,tmp.length()-1);
         if(lastOne == ';'){
@@ -611,10 +666,25 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
                 serversByGroupId.insert(std::make_pair(groupName, std::make_pair(ip, port)));
                 serversSockets.insert(std::make_pair(groupName, socket));
                 leaveMap.insert(std::make_pair(std::make_pair(ip, port), socket));
-                nameByPort.insert(std::make_pair(socket, groupName));
-                servers[socket] = new Server(socket);
+                if(servers.find(socket) == servers.end()){
+                    std::cout << "create new server " << std::endl;
+                    servers[socket] = new Server(socket);
+                }
+                for(auto const& i : servers){
+                    std::cout << "i.first: " << i.first << std::endl;
+                }
+                std::cout << "server sock: " << socket << std::endl;
+                std::cout << "server sock: " << servers.find(socket)->first << std::endl;
+                std::cout << "before setting server info, line 647" << std::endl;
+                servers.find(socket)->second->name = groupName;
+                std::cout << "before setting groupname , line 649" << std::endl;
+                servers[socket]->ip = ip;
+                std::cout << "before setting ip, line 651" << std::endl;
+                servers[socket]->port = port;
+                std::cout << "after setting server info, line 653" << std::endl;
                 firstFound = true;
                 if(incomingConnection){
+                    std::cout << "incoming Connection " << std::endl;
                     //if incoming only check the first servers info
                     break;
                 }
@@ -623,7 +693,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
                 //should not be needed since break; above
                 if (!incomingConnection) {
                     std::cout << "IP: " << ip << ", port: " << newVal << std::endl;
-                    handleConnection(ip.c_str(), newVal.c_str(), listenServersPort);
+                    handleConnection(ip.c_str(), newVal.c_str(), listenServersPort, maxfds);
                 }
             }
         }
@@ -633,7 +703,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     }
 }
 
-void handleConnection(const char* ipAddress, const char* port, int listenServersPort)
+void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds)
 {
     if(serversByGroupId.size() > 4){
         return;
@@ -680,8 +750,13 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
      * ToDo the right values
      */
 
-    handleListServer(tmpSocket, listenServersPort, false);
-    FD_ZERO(&openSockets);
+    handleListServer(tmpSocket, listenServersPort, false, maxfds);
+    std::cout << "line 689: tmpSocket in FD_SET: " << tmpSocket << std::endl;
+    if(tmpSocket > *maxfds){
+        std::cout << "setting the maxfds: " << *maxfds << std::endl;
+        *maxfds = tmpSocket;
+        std::cout << "setting the maxfds: " << *maxfds << std::endl;
+    }
     FD_SET(tmpSocket, &openSockets);
 }
 
@@ -693,7 +768,6 @@ int main(int argc, char* argv[])
         exit(0);
     }
     /*
-     * Todo 1. make the file expect more parameters ./server <portListen><serverToConnectTo><serverPort>
      * Todo 2. after you get a connection send the LISTSERVERS,<FROM GROUP ID>  command to the server
      * Todo 3. begin with inserting the info of the first parameter info the networkInfo (the server that you connected to)
      * Todo 4. after that try to connect to the rest of the servers that he is connected to,
@@ -709,13 +783,15 @@ int main(int argc, char* argv[])
     int maxfds;                     // Passed to select() as max fd in set
     std::map<std::string, std::string> networkInfo;
     findMyIp(networkInfo);
+    myName = argv[1];
+    FD_ZERO(&openSockets);
 
     listenServerSock = open_socket(serverPort);                     // Open the socket for the server connections
 
-    handleConnection(argv[3], argv[4], serverPort);
 
     std::map<std::string, std::string>::const_iterator pos = networkInfo.find("eth1");
     std::string groupName(argv[1]);
+
     if(pos != networkInfo.end()){
         serversByGroupId.insert(std::make_pair(groupName, std::make_pair(pos->second, serverPort)));
     }
@@ -723,6 +799,7 @@ int main(int argc, char* argv[])
         printf("eth1 not found\n");
     }
 
+    handleConnection(argv[3], argv[4], serverPort, &maxfds);// HERE FIRST BEFORE TEST
     // Setup socket for server to listen to
 
     listenClientSock = open_socket(clientPort);                     // Open the socket for the client connections
@@ -735,11 +812,7 @@ int main(int argc, char* argv[])
     std::thread clientThread(handleClients, listenClientSock, clientPort, &maxfds);
     std::thread serverThread(handleServers,listenServerSock, serverPort, &maxfds);
     //handleServers(listenServerSock, serverPort, servers, serversByGroupId);
-
-    /*
-     * ToDo Here should come a while loop for the handling the messages
-     * ToDo to other servers.
-     */
+    //handleConnection(argv[3], argv[4], serverPort); //HERE AFTER THE TEST
 
     for(auto const& p : serversSockets){
         std::cout << "p.first" << p.first << " p.second " << p.second << std::endl;
@@ -750,43 +823,7 @@ int main(int argc, char* argv[])
     while(!finished){
         bzero(buffer, sizeof(buffer));
         fgets(buffer, sizeof(buffer), stdin);
-        localServerCommand(buffer, serverPort, maxfds);
-
-        /*
-        std::stringstream sstream(buffer);
-        std::string token;
-        std::vector<std::string> tokens;
-        while(sstream >> token){
-            tokens.push_back(token);
-        }
-        if((tokens[0].compare("CONNECTLOCAL") == 0))
-        {
-            std::cout << "connection to local port " << tokens[1] << std::endl;
-            handleConnection("127.0.0.1", tokens[1].c_str(), serverPort);
-        }
-        else{
-            std::cout << "no command found, TOKEN: " << tokens[0] << std::endl;
-        }
-        std::cout << "" << std::endl;
-        std::cout << "CURRENT SERVERS" << std::endl;
-        std::cout << "" << std::endl;
-        for(auto const& p : serversByGroupId){
-            std::cout << "p.first: " << p.first << std::endl;
-            std::cout << "p.second.first: " << p.second.first << std::endl;
-            std::cout << "p.second.second: " << p.second.second << std::endl;
-            std::cout << "" << std::endl;
-        }
-        */
-        /*
-        int testSock = serversSockets.find("P3_GROUP65_TEST")->second;
-        int nwrite = send(testSock, buffer, strlen(buffer),0);
-
-        if(nwrite  == -1)
-        {
-            perror("send() to server failed: ");
-            finished = true;
-        }
-        */
+        localServerCommand(buffer, serverPort, &maxfds);
     }
     serverThread.join();
     clientThread.join();
