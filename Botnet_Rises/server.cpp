@@ -70,6 +70,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
 void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds);
 void serverList(int socket, std::string groupName, char *buffer);
 void sendMSG(std::string groupName, const char *msg);
+void getMSG(int socket, std::string groupName);
 
 
 // Note: map is not necessarily the most efficient method to use here,
@@ -224,16 +225,29 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 
     if((tokens[0].compare("SENDMSG") == 0))
     {
+        std::string msg;
+        for(int i = 2; i < tokens.size(); i++){
+            msg += tokens[i];
+        }
         if(tokens[1] == myName) //Checking if the message was meant for this server or not
         {
             std::cout << "This message was sent to me and the message is: " << tokens[2] << std::endl;
+            auto pos = serverMessages.find(myName);
+            if(pos != serverMessages.end()){
+                pos->second.push_back(msg);
+                std::cout << pos->second.size() << std::endl;
+
+            }
+            else
+            {
+                std::vector<std::string> tmpVector;
+                tmpVector.push_back(msg);
+                serverMessages.insert(std::make_pair(myName, tmpVector));
+                
+            }
         }
         else
-        {
-            std::string msg;
-            for(int i = 2; i < tokens.size(); i++){
-                msg += tokens[i];
-            }
+        {            
             std::cout << "sendMSG function call on line 237 " << std::endl;
             sendMSG(tokens[1], msg.c_str());
             /*
@@ -249,6 +263,10 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             }
              */
         }
+    }
+    else if(tokens[0].compare("GETMSG") == 0)
+    {
+        getMSG(clientSocket, tokens[1]);
     }
     else if(tokens[0].compare("LISTSERVERS") == 0)
     {
@@ -290,6 +308,23 @@ void serverList(int socket, std::string groupName, char *buffer)
         msg = "I am not connected to that server, please try a different name. ";
         send(socket, msg.c_str(), msg.length()-1, 0);
     }
+}
+void getMSG(int socket, std::string groupName)
+{
+    std::string msg;
+        auto pos = serverMessages.find(groupName);
+        if(pos != serverMessages.end())
+        {
+            msg = pos->second.front();
+            pos->second.erase(pos->second.begin());
+            send(socket, msg.c_str(),msg.length(),0);   
+        }
+        else
+        {
+            msg = "I don't have any messages from this server.";
+            send(socket, msg.c_str(),msg.length(),0);
+        }
+
 }
 
 void sendMSG(std::string groupName, const char *msg)
