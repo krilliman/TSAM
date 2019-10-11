@@ -6,3 +6,17 @@
 
 
 studnum virkar ekki fyrsta local command á server sem að tengist öðrum server.
+
+
+Þegar það er connectað á þinn server með beint með ip og port(sama með group_id) þá lendir maður í því að serverinn sem að connectaði að þér
+tekur ekki eftir því þegar þú sendir á hann ListServers, þar að leiðandi ert þú fastur í read útaf hann tekur aldrei eftir að einhver er að tala við sig.
+
+Þetta kemur ekki þegar það er startað upp server og connectað beint að þér. s.s ./server server1 4000 127.0.0.1 5000, hérna virkar að tengjast við 4000
+og 4000 fær að vita upplýsingir frá 5000 með því að nota listservers.
+
+NODE: VIRKAR EKKI AÐ SETJA READ OG EXCEPT SOCKETS SEM POINTER.
+
+
+virkar að tengjast öllu netinu uppí 5 vélar.
+enn þegar það er tengt við þig og þú ert ný þegar með 5 velar tengdar við þig þá þarf tengist samt 6 vélin. finna út hvernig það er best að banna þessari
+númer 6 að tengjast.
