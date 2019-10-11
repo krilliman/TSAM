@@ -218,7 +218,7 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 
     // Split command from client into tokens for parsing
     std::stringstream stream(buffer);
-
+    std::string msg;
     while(stream >> token)
         tokens.push_back(token);
 
@@ -226,11 +226,20 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
     {
         if(tokens[1] == myName) //Checking if the message was meant for this server or not
         {
-            std::cout << "This message was sent to me and the message is: " << tokens[2] << std::endl;
+            for(int i = 4; i < tokens.size(); i++){
+                msg += tokens[i] + " ";
+            }
+            auto pos = serverMessages.find(tokens[2]);
+            if(pos != serverMessages.end()){
+                std::vector<std::string> tmpVector;
+                tmpVector.push_back(msg);
+                serverMessages.insert(std::make_pair(tokens[2], tmpVector));
+            }
+            std::cout << msg << std::endl;
+            std::cout << serverMessages.size() << std::endl;
         }
         else
         {
-            std::string msg;
             for(int i = 2; i < tokens.size(); i++){
                 msg += tokens[i];
             }
@@ -249,6 +258,14 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             }
              */
         }
+    }
+    else if(tokens[0].compare("GETMSG") == 0)
+    {
+        else
+        {
+            getMSG(clientSocket, tokens[1], buffer);
+        }
+
     }
     else if(tokens[0].compare("LISTSERVERS") == 0)
     {
@@ -291,7 +308,31 @@ void serverList(int socket, std::string groupName, char *buffer)
         send(socket, msg.c_str(), msg.length()-1, 0);
     }
 }
-
+void getMSG(int socket, std::string groupName, char *buffer)
+{
+    std::string msg;
+    int sendSocket;
+    sendSocket = serversSockets.find(groupname)->second;
+    if(tokens[1] == myName)
+    {
+        msg = serverMessages.find(myName)->second.front();
+        std::cout << msg << std::endl;
+        serverMessages.find(myName)->second.front().erase();
+        send(socket, msg.c_str(),msg.length(),0);
+    }
+    else if(sendSocket != 0)
+    {
+        char response[1025];
+        int nread;
+        nread = read(sendSocket,response,strlen(response),0);
+        send(socket,response, strlen(response),0);
+    }
+    else
+    {
+        msg = "I am not connected to that server, please try a different name. ";
+        send(socket, msg.c_str(),msg.length()-1,0);
+    }
+}
 void sendMSG(std::string groupName, const char *msg)
 {
     auto pos = serversSockets.find(groupName);
