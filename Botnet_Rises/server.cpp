@@ -248,7 +248,6 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
                 std::vector<std::string> tmpVector;
                 tmpVector.push_back(msg);
                 serverMessages.insert(std::make_pair(myName, tmpVector));
-
             }
         }
         else
@@ -314,6 +313,23 @@ void serverList(int socket, std::string groupName, char *buffer)
         send(socket, msg.c_str(), msg.length()-1, 0);
     }
 }
+void getMSG(int socket, std::string groupName)
+{
+    std::string msg;
+        auto pos = serverMessages.find(groupName);
+        if(pos != serverMessages.end())
+        {
+            msg = pos->second.front();
+            pos->second.erase(pos->second.begin());
+            send(socket, msg.c_str(),msg.length(),0);   
+        }
+        else
+        {
+            msg = "I don't have any messages from this server.";
+            send(socket, msg.c_str(),msg.length(),0);
+        }
+
+}
 
 void sendMSG(std::string groupName, const char *msg)
 {
@@ -332,23 +348,6 @@ void sendMSG(std::string groupName, const char *msg)
     else{
         std::cout << "send message failed" << std::endl;
     }
-}
-void getMSG(int socket, std::string groupName)
-{
-    std::string msg;
-    auto pos = serverMessages.find(groupName);
-    if(pos != serverMessages.end())
-    {
-        msg = pos->second.front();
-        pos->second.erase(pos->second.begin());
-        send(socket, msg.c_str(),msg.length(),0);
-    }
-    else
-    {
-        msg = "I don't have any messages from this server.";
-        send(socket, msg.c_str(),msg.length(),0);
-    }
-
 }
 
 
@@ -396,7 +395,7 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
             return;
         }
         int noMsg = stoi(tokens[2]);
-        serverMutex.lock();
+        //serverMutex.lock();
         if(servers[serverSocket]->keepAliveMsgMax == 0){
             servers[serverSocket]->keepAliveMsgMax = noMsg;
         }
@@ -405,7 +404,7 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
             servers[serverSocket]->keepAliveMsg = 0;
             servers[serverSocket]->keepAliveMsgMax = 0;
         }
-        serverMutex.unlock();
+        //serverMutex.unlock();
         std::cout << "keepaliveMSG from " << servers[serverSocket]->name << std::endl;
     }
 
@@ -853,33 +852,33 @@ void scanForDisconnectedServers(int *maxfds)
         struct timeval tv = {25, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
         for(auto &server : servers){
-            serverMutex.lock();
+            //serverMutex.lock();
             if(server.second->keepAliveMsgMax != server.second->keepAliveMsg){
                 int missing = server.second->keepAliveMsgMax - server.second->keepAliveMsg;
                 if(missing < 0){
                     int closeVal = close(server.second->sock);
                     if(closeVal != -1) {
-                        serverMutex.unlock();
+                        //serverMutex.unlock();
                         std::cout << "closeval: " << closeVal << std::endl;
                         closeServer(server.second->sock, maxfds);
                     }
                 }
                 else{
-                    serverMutex.unlock();
+                    //serverMutex.unlock();
                     struct timeval tv2 = {2*missing, 0};
                     int timeoutVal = select(0, NULL, NULL, NULL, &tv2);                       // give the program 2 seconds fo each message that is missing
-                    serverMutex.lock();
+                    //serverMutex.lock();
                     if(server.second->keepAliveMsgMax != server.second->keepAliveMsg){              // if there are still messages missing close the server.
                         int closeVal = close(server.second->sock);
                         if(closeVal != -1){
-                            serverMutex.unlock();
+                            //serverMutex.unlock();
                             std::cout << "closeval: " << closeVal << std::endl;
                             closeServer(server.second->sock, maxfds);
                         }
                     }
                 }
             }
-            serverMutex.unlock();
+            //serverMutex.unlock();
         }
     }
 
