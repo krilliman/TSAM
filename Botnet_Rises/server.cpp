@@ -29,6 +29,7 @@
 #include <map>
 #include "ip.cpp"
 #include <unistd.h>
+#include <mutex>
 
 // fix SOCK_NONBLOCK for OSX
 #ifndef SOCK_NONBLOCK
@@ -59,7 +60,8 @@ public:
     std::string name = "";           // Limit length of name of client's user
     std::string ip = "";
     int port = 0;
-
+    int keepAliveMsg = 0;
+    int keepAliveMsgMax = 0;
     Server(int socket) : sock(socket){}
 
     ~Server(){}            // Virtual destructor defined for base class
@@ -70,7 +72,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
 void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds);
 void serverList(int socket, std::string groupName, char *buffer);
 void sendMSG(std::string groupName, const char *msg);
-
+void getMSG(int socket, std::string groupName);
 
 // Note: map is not necessarily the most efficient method to use here,
 // especially for a server with large numbers of simulataneous connections,
@@ -93,6 +95,10 @@ std::map<int, Server*> servers;         // Lookup table for per Server informati
 std::string myName;
 std::map<std::string, std::vector<std::string>> serverMessages;
 Server *currentServer = new Server(0);
+
+// mutex for maps
+std::mutex serverMutex;
+
 
 int open_socket(int portno)
 {
@@ -224,16 +230,29 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 
     if((tokens[0].compare("SENDMSG") == 0))
     {
+        std::string msg;
+        for(int i = 2; i < tokens.size(); i++){
+            msg += tokens[i];
+        }
         if(tokens[1] == myName) //Checking if the message was meant for this server or not
         {
             std::cout << "This message was sent to me and the message is: " << tokens[2] << std::endl;
+            auto pos = serverMessages.find(myName);
+            if(pos != serverMessages.end()){
+                pos->second.push_back(msg);
+                std::cout << pos->second.size() << std::endl;
+
+            }
+            else
+            {
+                std::vector<std::string> tmpVector;
+                tmpVector.push_back(msg);
+                serverMessages.insert(std::make_pair(myName, tmpVector));
+
+            }
         }
         else
         {
-            std::string msg;
-            for(int i = 2; i < tokens.size(); i++){
-                msg += tokens[i];
-            }
             std::cout << "sendMSG function call on line 237 " << std::endl;
             sendMSG(tokens[1], msg.c_str());
             /*
@@ -249,6 +268,10 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             }
              */
         }
+    }
+    else if(tokens[0].compare("GETMSG") == 0)
+    {
+        getMSG(clientSocket, tokens[1]);
     }
     else if(tokens[0].compare("LISTSERVERS") == 0)
     {
@@ -310,6 +333,24 @@ void sendMSG(std::string groupName, const char *msg)
         std::cout << "send message failed" << std::endl;
     }
 }
+void getMSG(int socket, std::string groupName)
+{
+    std::string msg;
+    auto pos = serverMessages.find(groupName);
+    if(pos != serverMessages.end())
+    {
+        msg = pos->second.front();
+        pos->second.erase(pos->second.begin());
+        send(socket, msg.c_str(),msg.length(),0);
+    }
+    else
+    {
+        msg = "I don't have any messages from this server.";
+        send(socket, msg.c_str(),msg.length(),0);
+    }
+
+}
+
 
 void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buffer)
 {
@@ -348,6 +389,24 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
             pos->second.push_back(msg);
         }
         std::cout << "message from " << tokens[2] << " " << msg << std::endl;
+    }
+    else if((tokens[1].compare("KEEPALIVE,") == 0)){
+        if(tokens.size() != 4){
+            printf("Invalid command format, format: <01> <KEEPALIVE>,<No, messages> <04>\n");
+            return;
+        }
+        int noMsg = stoi(tokens[2]);
+        serverMutex.lock();
+        if(servers[serverSocket]->keepAliveMsgMax == 0){
+            servers[serverSocket]->keepAliveMsgMax = noMsg;
+        }
+        servers[serverSocket]->keepAliveMsg++;                                              // need a semaphore for this
+        if(servers[serverSocket]->keepAliveMsg == servers[serverSocket]->keepAliveMsgMax){
+            servers[serverSocket]->keepAliveMsg = 0;
+            servers[serverSocket]->keepAliveMsgMax = 0;
+        }
+        serverMutex.unlock();
+        std::cout << "keepaliveMSG from " << servers[serverSocket]->name << std::endl;
     }
 
 }
@@ -767,7 +826,64 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
 
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
 }
+void handleServerKeepAlive()
+{
+    bool finished = false;
+    while(!finished)
+    {
+        struct timeval tv = {20, 0};   // sleep for ten minutes!
+        int timeout = select(0, NULL, NULL, NULL, &tv);
+        for(auto &server : servers){
+            //std::cout << "sending to server: " << server.second->name << std::endl;
+            int socket = server.second->sock;
+            //std::string msg = "01 SENDMSG, " + myName + " " + server.second->name + " this is a keepAlive message 04";
+            std::string msg = "01 KEEPALIVE, 2 04";
+            for(int i = 0; i < 2; i++){
+                struct timeval tv2 = {1, 0};
+                int sendval = send(socket, msg.c_str(), msg.length(), 0);
+                select(0, NULL, NULL, NULL, &tv2);
+            }
+        }
+    }
+}
+void scanForDisconnectedServers(int *maxfds)
+{
+    bool finished = false;
+    while(!finished){
+        struct timeval tv = {25, 0};   // sleep for ten minutes!
+        int timeout = select(0, NULL, NULL, NULL, &tv);
+        for(auto &server : servers){
+            serverMutex.lock();
+            if(server.second->keepAliveMsgMax != server.second->keepAliveMsg){
+                int missing = server.second->keepAliveMsgMax - server.second->keepAliveMsg;
+                if(missing < 0){
+                    int closeVal = close(server.second->sock);
+                    if(closeVal != -1) {
+                        serverMutex.unlock();
+                        std::cout << "closeval: " << closeVal << std::endl;
+                        closeServer(server.second->sock, maxfds);
+                    }
+                }
+                else{
+                    serverMutex.unlock();
+                    struct timeval tv2 = {2*missing, 0};
+                    int timeoutVal = select(0, NULL, NULL, NULL, &tv2);                       // give the program 2 seconds fo each message that is missing
+                    serverMutex.lock();
+                    if(server.second->keepAliveMsgMax != server.second->keepAliveMsg){              // if there are still messages missing close the server.
+                        int closeVal = close(server.second->sock);
+                        if(closeVal != -1){
+                            serverMutex.unlock();
+                            std::cout << "closeval: " << closeVal << std::endl;
+                            closeServer(server.second->sock, maxfds);
+                        }
+                    }
+                }
+            }
+            serverMutex.unlock();
+        }
+    }
 
+}
 int main(int argc, char* argv[])
 {
     if(argc != 5)
@@ -815,10 +931,12 @@ int main(int argc, char* argv[])
     // Setup socket for server to listen to
 
     listenClientSock = open_socket(clientPort);                     // Open the socket for the client connections
-    
+
 
     std::thread clientThread(handleClients, listenClientSock, clientPort, &maxfds);
     std::thread serverThread(handleServers,listenServerSock, serverPort, &maxfds);
+    std::thread keepAliveThread(handleServerKeepAlive);
+    std::thread scanDisconnectedThread(scanForDisconnectedServers, &maxfds);
     //handleServers(listenServerSock, serverPort, servers, serversByGroupId);
     //handleConnection(argv[3], argv[4], serverPort); //HERE AFTER THE TEST
 
