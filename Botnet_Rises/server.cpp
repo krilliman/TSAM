@@ -60,8 +60,9 @@ public:
     std::string name = "";           // Limit length of name of client's user
     std::string ip = "";
     int port = 0;
-    int keepAliveMsg = 0;
-    int keepAliveMsgMax = 0;
+    int keepAliveMsg = 0;           //  remove this later
+    int keepAliveMsgMax = 0;        //  remove this later
+    bool checkedIn = false;
     Server(int socket) : sock(socket){}
 
     ~Server(){}            // Virtual destructor defined for base class
@@ -94,6 +95,8 @@ std::map<int, Client*> clients;         // Lookup table for per Client informati
 std::map<int, Server*> servers;         // Lookup table for per Server information
 std::string myName;
 std::map<std::string, std::vector<std::string>> serverMessages;
+std::map<std::string, std::vector<std::string>> messagesToBeSent;
+
 Server *currentServer = new Server(0);
 
 // mutex for maps
@@ -241,7 +244,6 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             if(pos != serverMessages.end()){
                 pos->second.push_back(msg);
                 std::cout << pos->second.size() << std::endl;
-
             }
             else
             {
@@ -254,18 +256,6 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         {
             std::cout << "sendMSG function call on line 237 " << std::endl;
             sendMSG(tokens[1], msg.c_str());
-            /*
-            int socket = 0;
-            socket = serversSockets.find(tokens[1])->second; // if it finds the connection on our serverlist
-            if(socket != 0)
-            {
-                std::cout << "Need to implement message function here";
-            }
-            else // Sends to our servers to see if they have the server or not.
-            {
-                std::cout << "I'm not connected to that group.";
-            }
-             */
         }
     }
     else if(tokens[0].compare("GETMSG") == 0)
@@ -316,31 +306,82 @@ void serverList(int socket, std::string groupName, char *buffer)
 void getMSG(int socket, std::string groupName)
 {
     std::string msg;
-        auto pos = serverMessages.find(groupName);
-        if(pos != serverMessages.end())
-        {
-            msg = pos->second.front();
-            pos->second.erase(pos->second.begin());
-            send(socket, msg.c_str(),msg.length(),0);   
+    auto const &pos = serverMessages.find(groupName);
+    std::cout << "groupName: " << groupName << std::endl;
+    for(auto i : serverMessages){
+        for(auto e : i.second){
+            std::cout << "i: " << i.first << "e: " << e << std::endl;
         }
-        else
-        {
-            msg = "I don't have any messages from this server.";
-            send(socket, msg.c_str(),msg.length(),0);
+    }
+    auto posTest = pos->first;
+    std::cout << "posTest " << serverMessages.find(groupName)->first << std::endl;
+    if(pos != serverMessages.end())
+    {
+        std::cout << "inside serverMessages" << std::endl;
+        msg = pos->second.front();
+        std::cout << "msg: " << msg << std::endl;
+        pos->second.erase(pos->second.begin());
+        send(socket, msg.c_str(),msg.length(),0);
+    }
+    else
+    {
+        auto newPos = serversSockets.find(groupName);
+        if(newPos != serversSockets.end()){
+            std::string msg = "01 GETMSG " + myName + " 04";
+            std::cout << "in getMSG, msg: " << msg << std::endl;
+            int sendVal = send(newPos->second, msg.c_str(), msg.length(), 0);
+            std::cout << "sendval: " << sendVal << std::endl;
+            return;
         }
+        msg = "I don't have any messages from this server.";
+        send(socket, msg.c_str(),msg.length(),0);
+    }
 
 }
-
+void emptyMessagesToBeSent(std::string groupName, int serverSocket)
+{
+    std::cout << "groupName: " << groupName << std::endl;
+    for(auto p : messagesToBeSent){
+        for(auto i  : p.second){
+            std::cout << "msg: " << i << std::endl;
+        }
+    }
+    auto pos = messagesToBeSent.find(groupName);
+    if(pos == messagesToBeSent.end()){
+        std::string msg = "01 SENDMSG " + myName + " " + groupName + " No messages found 04";
+        send(serverSocket, msg.c_str(), msg.length(), 0);
+        return;
+    }
+    for(auto s : pos->second){
+        sendMSG(groupName, s.c_str());
+        struct timeval tv = {10, 0};   // sleep for ten minutes!
+        int timeout = select(0, NULL, NULL, NULL, &tv);
+    }
+}
 void sendMSG(std::string groupName, const char *msg)
 {
+    std::cout << "sendMSG " << std::endl;
     auto pos = serversSockets.find(groupName);
     if(pos == serversSockets.end()){
+        auto toBeSentPos = messagesToBeSent.find(groupName);
+        if(toBeSentPos == messagesToBeSent.end()){
+            std::cout << "groupName " << groupName << std::endl;
+            std::cout << "inserting into messagesToBeSent" << *msg << std::endl;
+            std::vector<std::string> tmpVector;
+            std::string s = msg;
+            std::cout << "s: " << s << std::endl;
+            tmpVector.push_back(s);
+            messagesToBeSent.insert(std::make_pair(groupName, tmpVector));
+        }
+        else{
+            toBeSentPos->second.push_back(std::to_string(*msg));
+        }
         std::cout << "server with this group ID was not found " << std::endl;
         return;
     }
     int socket = pos->second;
 
-    std::string buffer = "01 SENDMSG, " + myName + ", " + groupName + ", " + msg + " 04";
+    std::string buffer = "01 SENDMSG " + myName + " " + groupName + " " + msg + " 04";
     int bSent = send(socket, buffer.c_str(), strlen(buffer.c_str()), 0);
     if(bSent > 0){
         std::cout << "message send successfully" << std::endl;
@@ -355,13 +396,15 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
 {
     std::vector<std::string> tokens;
     std::string token;
-
     // Split command from client into tokens for parsing
     std::stringstream stream(buffer);
 
     while(stream >> token)
         tokens.push_back(token);
-
+    std::cout << "buffer: " << *buffer << std::endl;
+    for(auto s : tokens){
+        std::cout << "token: " << s << std::endl;
+    }
     if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
     {
         printf("Invalid command format, <01> <Command>,< comma separated parameters > <04>\n");
@@ -373,27 +416,31 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
     else if((tokens[1].compare("LISTSERVERS")) == 0){
         serverList(serverSocket,tokens[1],buffer);
     }
-    else if((tokens[1].compare("SENDMSG,")) == 0){
+    else if((tokens[1].compare("SENDMSG")) == 0){
         std::string msg;
-        for(int i = 4; i < tokens.size(); i++){
+        for(int i = 4; i < tokens.size() - 1; i++){
             msg += tokens[i] + " ";
         }
         auto pos = serverMessages.find(tokens[2]);
-        if(pos != serverMessages.end()){
+        if(pos == serverMessages.end()){
+            std::cout << "inserting " << msg << " to vector" << std::endl;
             std::vector<std::string> tmpVector;
             tmpVector.push_back(msg);
             serverMessages.insert(std::make_pair(tokens[2], tmpVector));
         }
         else{
+            std::cout << "inserting " << msg << " to vector" << std::endl;
             pos->second.push_back(msg);
         }
         std::cout << "message from " << tokens[2] << " " << msg << std::endl;
     }
-    else if((tokens[1].compare("KEEPALIVE,") == 0)){
+    else if(tokens[1].compare("KEEPALIVE,") == 0){
         if(tokens.size() != 4){
             printf("Invalid command format, format: <01> <KEEPALIVE>,<No, messages> <04>\n");
             return;
         }
+        servers[serverSocket]->checkedIn = true;
+        /*
         int noMsg = stoi(tokens[2]);
         //serverMutex.lock();
         if(servers[serverSocket]->keepAliveMsgMax == 0){
@@ -404,8 +451,16 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
             servers[serverSocket]->keepAliveMsg = 0;
             servers[serverSocket]->keepAliveMsgMax = 0;
         }
+        */
         //serverMutex.unlock();
         std::cout << "keepaliveMSG from " << servers[serverSocket]->name << std::endl;
+    }
+    else if(tokens[1].compare("GETMSG") == 0){
+        if(tokens.size() != 4){
+            printf("Invalid command format, format: <01> <GETMSG>,<GROUP ID> <04>\n");
+            return;
+        }
+        emptyMessagesToBeSent(tokens[2], serverSocket);
     }
 
 }
@@ -830,29 +885,35 @@ void handleServerKeepAlive()
     bool finished = false;
     while(!finished)
     {
-        struct timeval tv = {20, 0};   // sleep for ten minutes!
+        struct timeval tv = {60, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
         for(auto &server : servers){
             //std::cout << "sending to server: " << server.second->name << std::endl;
             int socket = server.second->sock;
             //std::string msg = "01 SENDMSG, " + myName + " " + server.second->name + " this is a keepAlive message 04";
-            std::string msg = "01 KEEPALIVE, 2 04";
-            for(int i = 0; i < 2; i++){
-                struct timeval tv2 = {1, 0};
-                int sendval = send(socket, msg.c_str(), msg.length(), 0);
-                select(0, NULL, NULL, NULL, &tv2);
-            }
+            std::string msg = "01 KEEPALIVE, 0 04";
+            send(socket, msg.c_str(), strlen(msg.c_str()), 0);
         }
     }
 }
 void scanForDisconnectedServers(int *maxfds)
 {
     bool finished = false;
-    while(!finished){
-        struct timeval tv = {25, 0};   // sleep for ten minutes!
+    while(!finished) {
+        struct timeval tv = {120, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
-        for(auto &server : servers){
+        for (auto &server : servers) {
+            if (!server.second->checkedIn) {
+                int closeVal = close(server.second->sock);
+                if (closeVal != -1) {
+                    //serverMutex.unlock();
+                    std::cout << "closeval: " << closeVal << std::endl;
+                    closeServer(server.second->sock, maxfds);
+                }
+            }
+            server.second->checkedIn = false;
             //serverMutex.lock();
+            /*
             if(server.second->keepAliveMsgMax != server.second->keepAliveMsg){
                 int missing = server.second->keepAliveMsgMax - server.second->keepAliveMsg;
                 if(missing < 0){
@@ -877,17 +938,17 @@ void scanForDisconnectedServers(int *maxfds)
                         }
                     }
                 }
-            }
-            //serverMutex.unlock();
+                */
         }
+        //serverMutex.unlock();
     }
 
 }
 int main(int argc, char* argv[])
 {
-    if(argc != 5)
+    if(argc != 6)
     {
-        printf("Usage: chat_server <groupname port destIp destPort>\n");
+        printf("Usage: chat_server <groupname serverPort destIp destPort clientPort>\n");
         exit(0);
     }
     /*
@@ -900,7 +961,7 @@ int main(int argc, char* argv[])
     int listenClientSock;                   // Socket for connections to server
     int listenServerSock;                   // Socket for server connections
     int serverPort = atoi(argv[2]);
-    int clientPort = 10000;
+    int clientPort = atoi(argv[5]);
     char buffer[1025];
     //fd_set openSockets;
     int maxfds;                     // Passed to select() as max fd in set
