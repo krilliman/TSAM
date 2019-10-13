@@ -322,7 +322,11 @@ void getMSG(int socket, std::string groupName)
         std::cout << "msg: " << msg << std::endl;
         pos->second.erase(pos->second.begin());
         send(socket, msg.c_str(),msg.length(),0);
+        return;
     }
+    msg = "I don't have any messages from this server.";
+    send(socket, msg.c_str(),msg.length(),0);
+    /*
     else
     {
         auto newPos = serversSockets.find(groupName);
@@ -336,7 +340,7 @@ void getMSG(int socket, std::string groupName)
         msg = "I don't have any messages from this server.";
         send(socket, msg.c_str(),msg.length(),0);
     }
-
+    */
 }
 void emptyMessagesToBeSent(std::string groupName, int serverSocket)
 {
@@ -440,19 +444,11 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
             return;
         }
         servers[serverSocket]->checkedIn = true;
-        /*
-        int noMsg = stoi(tokens[2]);
-        //serverMutex.lock();
-        if(servers[serverSocket]->keepAliveMsgMax == 0){
-            servers[serverSocket]->keepAliveMsgMax = noMsg;
+        int msg = stoi(tokens[2]);
+        if(msg > 0){
+            std::string getmsg = "01 GETMSG " + myName + " 04";
+            send(serverSocket, getmsg.c_str(), getmsg.length(), 0);
         }
-        servers[serverSocket]->keepAliveMsg++;                                              // need a semaphore for this
-        if(servers[serverSocket]->keepAliveMsg == servers[serverSocket]->keepAliveMsgMax){
-            servers[serverSocket]->keepAliveMsg = 0;
-            servers[serverSocket]->keepAliveMsgMax = 0;
-        }
-        */
-        //serverMutex.unlock();
         std::cout << "keepaliveMSG from " << servers[serverSocket]->name << std::endl;
     }
     else if(tokens[1].compare("GETMSG") == 0){
@@ -885,13 +881,21 @@ void handleServerKeepAlive()
     bool finished = false;
     while(!finished)
     {
-        struct timeval tv = {60, 0};   // sleep for ten minutes!
+        struct timeval tv = {20, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
         for(auto &server : servers){
             //std::cout << "sending to server: " << server.second->name << std::endl;
             int socket = server.second->sock;
             //std::string msg = "01 SENDMSG, " + myName + " " + server.second->name + " this is a keepAlive message 04";
-            std::string msg = "01 KEEPALIVE, 0 04";
+            auto pos = messagesToBeSent.find(server.second->name);
+            std::string msg;
+            if(pos != messagesToBeSent.end()){
+                int msgNum = pos->second.size();
+                msg = "01 KEEPALIVE, " + std::to_string(msgNum) + " 04";
+            }
+            else{
+                msg = "01 KEEPALIVE, 0 04";
+            }
             send(socket, msg.c_str(), strlen(msg.c_str()), 0);
         }
     }
