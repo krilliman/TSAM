@@ -224,14 +224,8 @@ void closeServer(int serverSocket, int *maxfds)
 
 void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buffer)
 {
-    std::vector<std::string> tokens;
-    std::string token;
-
-    // Split command from client into tokens for parsing
-    std::stringstream stream(buffer);
-
-    while(stream >> token)
-        tokens.push_back(token);
+    std::string text = buffer;
+    std::vector<std::string> tokens = split(text,',');
 
     if((tokens[0].compare("SENDMSG") == 0))
     {
@@ -280,19 +274,21 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 }
 void serverList(int socket, std::string groupName, char *buffer)
 {
-    std::string msg = currentServer->name + ", " + currentServer->ip + ", " + std::to_string(currentServer->port) + "; ";
+    std::string msg = currentServer->name + "," + currentServer->ip + "," + std::to_string(currentServer->port) + "; ";
     int sendSocket;
     sendSocket = serversSockets.find(groupName)->second;
     if(groupName == myName)
     {
+        std::cout << "inside groupNAme == myname" << std::endl;
         for(auto const & p : serversByGroupId){
-            msg += p.first + ", " + p.second.first + ", " + std::to_string(p.second.second) + "; ";
+            msg += p.first + "," + p.second.first + "," + std::to_string(p.second.second) + "; ";
             std::cout << "msg: " << msg << std::endl;
         }
         send(socket, msg.c_str(), msg.length()-1, 0);
     }
     else if(sendSocket != 0)
     {
+        std::cout << "sendsocket =! 0" << std::endl;
         char response[1025];
         int nread;
         send(sendSocket, buffer, strlen(buffer), 0);
@@ -307,13 +303,34 @@ void serverList(int socket, std::string groupName, char *buffer)
 }
 std::vector<std::string> split(const std::string& s, char delimiter)
 {
-   std::vector<std::string> tokens;
-   std::string token;
-   std::istringstream tokenStream(s);
-   while (std::getline(tokenStream, token, delimiter))
+    std::string text = s;
+    std::string test1 = text.substr(0,2);
+    std::string test2 = text.substr(text.length()-2,text.length());
+//01SERVERS04
+    if(test1 == "01" && test2 == "04") // Checks if the command is from a server or not
+    {
+        text = text.substr(2, text.length()-4);
+    }
+
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(text);
+
+   while(std::getline(tokenStream, token, delimiter))
    {
-      tokens.push_back(token);
+        if(token[0] == ' ')
+        {
+            token = token.substr(1,token.size());
+        }
+        tokens.push_back(token);
    }
+
+    std::string tmp = tokens[tokens.size()-1];
+    if( tmp[tmp.length()-1] == '\n')
+    {
+        tmp = tmp.substr(0,tmp.length()-1);
+        tokens[tokens.size()-1] = tmp;
+    }
    return tokens;
 }
 
@@ -332,15 +349,7 @@ bool check(std::string check)
 void getMSG(int socket, std::string groupName)
 {
     std::string msg;
-    auto const &pos = serverMessages.find(groupName);
-    std::cout << "groupName: " << groupName << std::endl;
-    for(auto i : serverMessages){
-        for(auto e : i.second){
-            std::cout << "i: " << i.first << "e: " << e << std::endl;
-        }
-    }
-    auto posTest = pos->first;
-    std::cout << "posTest " << serverMessages.find(groupName)->first << std::endl;
+    auto pos = serverMessages.find(groupName);
     if(pos != serverMessages.end())
     {
         std::cout << "inside serverMessages" << std::endl;
@@ -352,21 +361,6 @@ void getMSG(int socket, std::string groupName)
     }
     msg = "I don't have any messages from this server.";
     send(socket, msg.c_str(),msg.length(),0);
-    /*
-    else
-    {
-        auto newPos = serversSockets.find(groupName);
-        if(newPos != serversSockets.end()){
-            std::string msg = "01 GETMSG " + myName + " 04";
-            std::cout << "in getMSG, msg: " << msg << std::endl;
-            int sendVal = send(newPos->second, msg.c_str(), msg.length(), 0);
-            std::cout << "sendval: " << sendVal << std::endl;
-            return;
-        }
-        msg = "I don't have any messages from this server.";
-        send(socket, msg.c_str(),msg.length(),0);
-    }
-    */
 }
 void emptyMessagesToBeSent(std::string groupName, int serverSocket)
 {
@@ -378,7 +372,7 @@ void emptyMessagesToBeSent(std::string groupName, int serverSocket)
     }
     auto pos = messagesToBeSent.find(groupName);
     if(pos == messagesToBeSent.end()){
-        std::string msg = "01 SENDMSG " + myName + " " + groupName + " No messages found 04";
+        std::string msg = "01SENDMSG," + myName + "," + groupName + ",No messages found04";
         send(serverSocket, msg.c_str(), msg.length(), 0);
         return;
     }
@@ -411,7 +405,7 @@ void sendMSG(std::string groupName, const char *msg)
     }
     int socket = pos->second;
 
-    std::string buffer = "01 SENDMSG " + myName + " " + groupName + " " + msg + " 04";
+    std::string buffer = "01SENDMSG," + myName + "," + groupName + "," + msg + "04";
     int bSent = send(socket, buffer.c_str(), strlen(buffer.c_str()), 0);
     if(bSent > 0){
         std::cout << "message send successfully" << std::endl;
@@ -424,65 +418,59 @@ void sendMSG(std::string groupName, const char *msg)
 
 void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buffer)
 {
-    std::vector<std::string> tokens;
-    std::string token;
-    // Split command from client into tokens for parsing
-    std::stringstream stream(buffer);
+    std::string text = buffer;
+    std::vector<std::string> tokens = split(text,',');
 
-    while(stream >> token)
-        tokens.push_back(token);
-    std::cout << "buffer: " << *buffer << std::endl;
+
     for(auto s : tokens){
         std::cout << "token: " << s << std::endl;
     }
-    if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
+    std::cout << "Testing if the command is legit" << std::endl;
+    if(!check(text))
     {
-        printf("Invalid command format, <01> <Command>,< comma separated parameters > <04>\n");
+        printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
         return;
     }
-    else if((tokens[1].compare("SERVERS")) == 0){
+    else if((tokens[0].compare("SERVERS")) == 0){
+        std::cout << "IM IN THE SERVERS COMMAND" << std::endl;
         serverList(serverSocket,myName,buffer);
     }
-    else if((tokens[1].compare("LISTSERVERS")) == 0){
+    else if((tokens[0].compare("LISTSERVERS")) == 0){
         serverList(serverSocket,tokens[1],buffer);
     }
-    else if((tokens[1].compare("SENDMSG")) == 0){
-        std::string msg;
-        for(int i = 4; i < tokens.size() - 1; i++){
-            msg += tokens[i] + " ";
-        }
-        auto pos = serverMessages.find(tokens[2]);
+    else if((tokens[0].compare("SENDMSG")) == 0){
+        auto pos = serverMessages.find(tokens[1]);
         if(pos == serverMessages.end()){
-            std::cout << "inserting " << msg << " to vector" << std::endl;
+            std::cout << "inserting " << tokens[3] << " to vector" << std::endl;
             std::vector<std::string> tmpVector;
-            tmpVector.push_back(msg);
-            serverMessages.insert(std::make_pair(tokens[2], tmpVector));
+            tmpVector.push_back(tokens[3]);
+            serverMessages.insert(std::make_pair(tokens[1], tmpVector));
         }
         else{
-            std::cout << "inserting " << msg << " to vector" << std::endl;
-            pos->second.push_back(msg);
+            std::cout << "inserting " << tokens[3] << " to vector" << std::endl;
+            pos->second.push_back(tokens[3]);
         }
-        std::cout << "message from " << tokens[2] << " " << msg << std::endl;
+        std::cout << "message from " << tokens[1] << " " << tokens[3] << std::endl;
     }
-    else if(tokens[1].compare("KEEPALIVE,") == 0){
-        if(tokens.size() != 4){
-            printf("Invalid command format, format: <01> <KEEPALIVE>,<No, messages> <04>\n");
+    else if(tokens[0].compare("KEEPALIVE") == 0){
+        if(tokens.size() != 2){
+            printf("Invalid command format, format: <01><KEEPALIVE>,<No, messages><04>\n");
             return;
         }
         servers[serverSocket]->checkedIn = true;
-        int msg = stoi(tokens[2]);
+        int msg = stoi(tokens[1]);
         if(msg > 0){
-            std::string getmsg = "01 GETMSG " + myName + " 04";
+            std::string getmsg = "01GETMSG," + myName + "04";
             send(serverSocket, getmsg.c_str(), getmsg.length(), 0);
         }
         std::cout << "keepaliveMSG from " << servers[serverSocket]->name << std::endl;
     }
-    else if(tokens[1].compare("GETMSG") == 0){
-        if(tokens.size() != 4){
-            printf("Invalid command format, format: <01> <GETMSG>,<GROUP ID> <04>\n");
+    else if(tokens[0].compare("GETMSG") == 0){
+        if(tokens.size() != 2){
+            printf("Invalid command format, format: <01><GETMSG>,<GROUP ID><04>\n");
             return;
         }
-        emptyMessagesToBeSent(tokens[2], serverSocket);
+        emptyMessagesToBeSent(tokens[1], serverSocket);
     }
     else if(tokens[1].compare("STATUSREQ") == 0){
         if(tokens.size() != 4){
@@ -738,7 +726,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 
     if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
     {
-        printf("Invalid command format, <01> <Command>,< comma separated parameters > <04>\n");
+        printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
         return;
     }
     else if((tokens[1].compare("LEAVE") == 0))
@@ -746,7 +734,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
         // for now lets just have everything space separated
         // just so we can get the functionality working
         if(tokens.size() != 5){
-            printf("Invalid format of LEAVE <01> LEAVE, IP, Port <04>");
+            printf("Invalid format of LEAVE <01>LEAVE,IP,Port<04>");
             return;
         }
         std::string ip = tokens[2];
@@ -813,17 +801,52 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     int nread;
     char buffer[1025];
     bzero(buffer, sizeof(buffer));
-    strcpy(buffer, "01 SERVERS 04");
+    strcpy(buffer, "01SERVERS04");
     std::cout << "send: " << buffer << std::endl;
     nwrite = send(socket, buffer, strlen(buffer), 0);
     memset(buffer, 0, sizeof(buffer));
     nread = read(socket, buffer, sizeof(buffer));
     std::cout << "read: " << buffer << std::endl;
     std::stringstream stream(buffer);
-    std::string tmp;
+    std::string tmp = buffer;
     std::stack<std::string> s;
     bool firstFound = false;
+    std::vector<std::string> firstSplit = split(tmp,';');
+    for(auto i : firstSplit)
+    {
+        std::vector<std::string> temp = split(i,',');
+        std::cout << temp[0] << " " << temp[1] << " " << temp[2] << std::endl;
+        if(!firstFound){
+            
+            int port = stoi(temp[2]);
+            serversByGroupId.insert(std::make_pair(temp[0], std::make_pair(temp[1], port)));
+            serversSockets.insert(std::make_pair(temp[0], socket));
+            leaveMap.insert(std::make_pair(std::make_pair(temp[1], port), socket));
+            if(servers.find(socket) == servers.end()){
+                std::cout << "create new server " << std::endl;
+                servers[socket] = new Server(socket);
+            }
+                servers.find(socket)->second->name = temp[0];
+                servers[socket]->ip = temp[1];
+                servers[socket]->port = port;
+                firstFound = true;
+                if(incomingConnection){
+                    //if incoming only check the first servers info
+                    break;
+                }
+            }
+            else {
+                //should not be needed since break; above
+                if (!incomingConnection) {
+                    if(serversByGroupId.find(temp[0]) == serversByGroupId.end()){
+                        handleConnection(temp[1].c_str(), temp[2].c_str(), listenServersPort, maxfds);
+                    }
+                }
+            }
 
+
+    }
+    /*
     while(stream >> tmp){
         char lastOne = tmp[tmp.length()-1];
         std::string newVal = tmp.substr(0,tmp.length()-1);
@@ -866,6 +889,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
             s.push(newVal);
         }
     }
+    */
 }
 
 void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds)
@@ -1024,7 +1048,7 @@ int main(int argc, char* argv[])
     std::string groupName(argv[1]);
 
     currentServer->name = argv[1];
-    currentServer->ip = pos->second;
+    currentServer->ip = "127.0.0.1";//pos->second;
     currentServer->port = atoi(argv[2]);
 
     /*
@@ -1035,9 +1059,9 @@ int main(int argc, char* argv[])
         printf("eth1 not found\n");
     }
     */
-    handleConnection(argv[3], argv[4], serverPort, &maxfds);// HERE FIRST BEFORE TEST
+    //handleConnection(argv[3], argv[4], serverPort, &maxfds);// HERE FIRST BEFORE TEST
     // Setup socket for server to listen to
-
+    handleConnection("127.0.0.1", argv[4], serverPort, &maxfds);
     listenClientSock = open_socket(clientPort);                     // Open the socket for the client connections
 
 
