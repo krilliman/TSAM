@@ -416,16 +416,11 @@ void sendMSG(std::string groupName, const char *msg)
 }
 
 
-void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buffer)
+void serverCommand(int serverSocket, int *maxfds, char *buffer)
 {
     std::string text = buffer;
     std::vector<std::string> tokens = split(text,',');
 
-
-    for(auto s : tokens){
-        std::cout << "token: " << s << std::endl;
-    }
-    std::cout << "Testing if the command is legit" << std::endl;
     if(!check(text))
     {
         printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
@@ -472,25 +467,36 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
         }
         emptyMessagesToBeSent(tokens[1], serverSocket);
     }
-    else if(tokens[1].compare("STATUSREQ") == 0){
-        if(tokens.size() != 4){
+    else if(tokens[0].compare("STATUSREQ") == 0){
+        if(tokens.size() != 2){
             printf("Invalid command format, format: <01> <STATUSREQ>,<FROM GROUP> <04>\n");
             return;
         }
-        std::string msg = "01STATUSRESP " + myName + "," + tokens[2];
+        std::string msg = "01STATUSRESP," + myName + "," + tokens[1] + ",";
         for(auto i : messagesToBeSent){
             if(i.second.size() > 0){
                 msg += i.first + "," + std::to_string(i.second.size());
             }
         }
+        msg += "04";
+        std::cout << "statusRESP string: " << msg << std::endl;
         send(serverSocket, msg.c_str(), msg.length(), 0);
     }
-    else if(tokens[1].compare("STATUSRESP") == 0){
-        if(tokens.size() != 5){
-            printf("Invalid command format, format: <01> <STATUSREQ>,<FROM GROUP><TO GROUP> <04>\n");
-            return;
+    else if(tokens[0].compare("STATUSRESP") == 0){
+        std::string msg;
+        for(int i = 3; i < tokens.size(); i = i+2){
+
+            msg += tokens[i] + "," + tokens[i+1];
         }
-        std::cout << "responseList: " << tokens[3] << std::endl;
+        if(msg.length() == 0){
+            std::cout << "server has no messages" << std::endl;
+        }
+        else{
+            std::cout << "Response: " << msg << std::endl;
+        }
+    }
+    else{
+        std::cout << "command not found " << std::endl;
     }
 }
 void handleServers(int listenServerSock, int serverPort, int *maxfds)
@@ -593,7 +599,7 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                         else
                         {
                             if(strlen(buffer) != 0){
-                                serverCommand(tmpServer->sock, &openSockets, maxfds,
+                                serverCommand(tmpServer->sock, maxfds,
                                               buffer);
                             }
                         }
@@ -789,8 +795,20 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
         }
         std::cout << "size of servers: " << servers.size() << std::endl << std::endl;
     }
+    else if(tokens[1].compare("STATUSREQ") == 0){
+        auto pos = serversSockets.find(tokens[2]);
+        if(pos != serversSockets.end()){
+            int sock = pos->second;
+            std::string tmp = "01STATUSREQ," + myName + "04";
+            send(sock, tmp.c_str(), tmp.length(), 0);
+        }
+        else{
+            std::cout << "group name not found" << std::endl;
+        }
+    }
     else{
-        std::cout << "no command found, TOKEN: " << tokens[1] << std::endl;
+        std::cout << "no command found, TOKEN[1]: " << tokens[1] << std::endl;
+        std::cout << "no command found, TOKEN[2]: " << tokens[2] << std::endl;
     }
 
 }
@@ -949,7 +967,7 @@ void handleServerKeepAlive()
     bool finished = false;
     while(!finished)
     {
-        struct timeval tv = {20, 0};   // sleep for ten minutes!
+        struct timeval tv = {60, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
         for(auto &server : servers){
             //std::cout << "sending to server: " << server.second->name << std::endl;
