@@ -484,9 +484,27 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
         }
         emptyMessagesToBeSent(tokens[2], serverSocket);
     }
-
+    else if(tokens[1].compare("STATUSREQ") == 0){
+        if(tokens.size() != 4){
+            printf("Invalid command format, format: <01> <STATUSREQ>,<FROM GROUP> <04>\n");
+            return;
+        }
+        std::string msg = "01STATUSRESP " + myName + "," + tokens[2];
+        for(auto i : messagesToBeSent){
+            if(i.second.size() > 0){
+                msg += i.first + "," + std::to_string(i.second.size());
+            }
+        }
+        send(serverSocket, msg.c_str(), msg.length(), 0);
+    }
+    else if(tokens[1].compare("STATUSRESP") == 0){
+        if(tokens.size() != 5){
+            printf("Invalid command format, format: <01> <STATUSREQ>,<FROM GROUP><TO GROUP> <04>\n");
+            return;
+        }
+        std::cout << "responseList: " << tokens[3] << std::endl;
+    }
 }
-
 void handleServers(int listenServerSock, int serverPort, int *maxfds)
 {
     bool finished;
