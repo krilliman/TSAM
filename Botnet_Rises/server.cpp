@@ -98,6 +98,8 @@ std::map<int, Server*> servers;         // Lookup table for per Server informati
 std::string myName;
 std::map<std::string, std::vector<std::string>> serverMessages;
 std::map<std::string, std::vector<std::string>> messagesToBeSent;
+char begin = '\1';
+char end = '\4';
 
 Server *currentServer = new Server(0);
 
@@ -221,7 +223,6 @@ void closeServer(int serverSocket, int *maxfds)
             *maxfds = std::max(*maxfds, p.second->sock);
         }
     }
-    std::cout << "disconnecting from " << groupName << std::endl;
     // And remove from the list of open sockets.
 
     FD_CLR(serverSocket, &openSockets);
@@ -279,44 +280,22 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 }
 void serverList(int socket, std::string groupName, char *buffer)
 {
-    std::string msg = currentServer->name + "," + currentServer->ip + "," + std::to_string(currentServer->port) + "; ";
+    std::string msg = "\1SERVERS," + currentServer->name + "," + currentServer->ip + "," + std::to_string(currentServer->port) + ";";
     serversSocketsMutex.lock();
-    int sendSocket;
-    sendSocket = serversSockets.find(groupName)->second;
     serversSocketsMutex.unlock();
-    if(groupName == myName)
-    {
-        serversByGroupIdMutex.lock();
-        for(auto const & p : serversByGroupId){
-            msg += p.first + "," + p.second.first + "," + std::to_string(p.second.second) + "; ";
-        }
-        serversByGroupIdMutex.unlock();
-        send(socket, msg.c_str(), msg.length()-1, 0);
+
+    serversByGroupIdMutex.lock();
+    for(auto const & p : serversByGroupId){
+        msg += p.first + "," + p.second.first + "," + std::to_string(p.second.second) + ";";
     }
-    else if(sendSocket != 0)
-    {
-        char response[1025];
-        int nread;
-        send(sendSocket, buffer, strlen(buffer), 0);
-        nread = read(sendSocket,response,strlen(response));
-        send(socket, response, strlen(response),0);
-    }
-    else
-    {
-        msg = "I am not connected to that server, please try a different name. ";
-        send(socket, msg.c_str(), msg.length()-1, 0);
-    }
+    serversByGroupIdMutex.unlock();
+    msg += "\4";
+    std::cout << "msg: " << msg << std::endl;
+    send(socket, msg.c_str(), msg.length(), 0);
 }
 std::vector<std::string> split(const std::string& s, char delimiter)
 {
     std::string text = s;
-    std::string test1 = text.substr(0,2);
-    std::string test2 = text.substr(text.length()-2,text.length());
-    if(test1 == "01" && test2 == "04") // Checks if the command is from a server or not
-    {
-        text = text.substr(2, text.length()-4);
-    }
-
     std::vector<std::string> tokens;
     std::string token;
     std::istringstream tokenStream(text);
@@ -340,10 +319,9 @@ std::vector<std::string> split(const std::string& s, char delimiter)
 }
 bool check(std::string check)
 {
-    std::string test1 = check.substr(0,2);
-    std::string test2 = check.substr(check.length()-2,check.length());
+    std::string test2 = check.substr(check.length()-1,check.length());
 
-    if(test1 == "01" && test2 == "04")
+    if(check[0] == begin && check[check.length()-1] == end)
     {
         return true;
     }
@@ -407,26 +385,28 @@ void sendMSG(std::string groupName, const char *msg)
     serversSocketsMutex.unlock();
     int socket = pos->second;
 
-    std::string buffer = "01SENDMSG," + myName + "," + groupName + "," + msg + "04";
+    std::string buffer = "\1SENDMSG," + myName + "," + groupName + "," + msg + "\4";
     int bSent = send(socket, buffer.c_str(), strlen(buffer.c_str()), 0);
-    if(bSent > 0){
-        std::cout << "message send successfully" << std::endl;
-    }
-    else{
-        std::cout << "send message failed" << std::endl;
-    }
 }
 void serverCommand(int serverSocket, int *maxfds, char *buffer)
 {
     std::string text = buffer;
-    std::vector<std::string> tokens = split(text,',');
+    text = text.substr(1, text.length()-2);
+    std::vector<std::string> tmp = split(text,';');
 
-    if(!check(text))
-    {
-        printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
-        return;
+    std::vector<std::string> tokens;
+
+    for(auto s : tmp){
+        std::cout << "tmp: " << s << std::endl;
     }
-    else if((tokens[0].compare("SERVERS")) == 0){
+    for(auto i : tmp)
+    {
+        tokens = split(i,',');
+    }
+    for(auto s : tokens){
+        std::cout << "token: " << s << std::endl;
+    }
+    if((tokens[0].compare("SERVERS")) == 0){
         serverList(serverSocket,myName,buffer);
     }
     else if((tokens[0].compare("LISTSERVERS")) == 0){
@@ -448,19 +428,19 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
     }
     else if(tokens[0].compare("KEEPALIVE") == 0){
         if(tokens.size() != 2){
-            printf("Invalid command format, format: <01><KEEPALIVE>,<No, messages><04>\n");
+            printf("Invalid command format, format: <KEEPALIVE>,<No, messages>\n");
             return;
         }
         servers[serverSocket]->checkedIn = true;
         int msg = stoi(tokens[1]);
         if(msg > 0){
-            std::string getmsg = "01GETMSG," + myName + "04";
+            std::string getmsg = "\1GETMSG," + myName + "\4";
             send(serverSocket, getmsg.c_str(), getmsg.length(), 0);
         }
     }
     else if(tokens[0].compare("GETMSG") == 0){
         if(tokens.size() != 2){
-            printf("Invalid command format, format: <01><GETMSG>,<GROUP ID><04>\n");
+            printf("Invalid command format, format: <GETMSG>,<GROUP ID>\n");
             return;
         }
         emptyMessagesToBeSent(tokens[1], serverSocket);
@@ -548,6 +528,9 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                 // Add new client to the list of open sockets
                 FD_SET(serverSock, &openSockets);
 
+                handleListServer(serverSock, listenServerSock, true, maxfds);
+
+
                 // And update the maximum file descriptor
                 *maxfds = std::max(*maxfds, serverSock);
 
@@ -591,6 +574,7 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                 if(serverSock > *maxfds){
                     *maxfds = serverSock;
                 }
+                /*
                 struct timeval tv2 = {1, 0};   // sleep for 1 sec!
                 int timeout = select(0, NULL, NULL, NULL, &tv2);
                 serverMutex.lock();
@@ -605,6 +589,7 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                 if(!check){
                     serverMutex.unlock();
                 }
+                */
             }
         }
     }
@@ -705,14 +690,12 @@ void handleClients(int listenClientSock, int clientPort, int *maxfds)
             }
         }
     }
-
-
-
 }
 void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 {
     std::vector<std::string> tokens;
     std::string token;
+    
 
     // Split command into tokens for parsing
     std::stringstream stream(buffer);
@@ -722,7 +705,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 
     if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
     {
-        printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
+        printf("Invalid command format, <<Command>,<comma separated parameters>\n");
         return;
     }
     else if((tokens[1].compare("LEAVE") == 0))
@@ -730,7 +713,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
         // for now lets just have everything space separated
         // just so we can get the functionality working
         if(tokens.size() != 5){
-            printf("Invalid format of LEAVE <01>LEAVE,IP,Port<04>");
+            printf("Invalid format of LEAVE LEAVE,IP,Port");
             return;
         }
         std::string ip = tokens[2];
@@ -813,18 +796,25 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     int nread;
     char buffer[1025];
     bzero(buffer, sizeof(buffer));
-    strcpy(buffer, "01SERVERS04");
-    nwrite = send(socket, buffer, strlen(buffer), 0);
-    memset(buffer, 0, sizeof(buffer));
+    std::string sendVal = "\1LISTSERVERS," + myName + "\4";
+    nwrite = send(socket, sendVal.c_str(), sendVal.length(), 0);
     nread = read(socket, buffer, sizeof(buffer));
-    std::stringstream stream(buffer);
+    std::cout << "buffer after read " << sendVal << ": " << buffer << std::endl;
+    //std::stringstream stream(buffer);
+
     std::string tmp = buffer;
-    std::stack<std::string> s;
+    tmp = tmp.substr(9,tmp.length()-11);
+    std::cout << "tmp: " << tmp << std::endl;
+    //std::stack<std::string> s;
     bool firstFound = false;
     std::vector<std::string> firstSplit = split(tmp,';');
     for(auto i : firstSplit)
     {
+        std::cout << "i: " << i << std::endl;
         std::vector<std::string> temp = split(i,',');
+        if(temp[0] == myName){
+            continue;
+        }
         if(!firstFound){
             int port = stoi(temp[2]);
             serversByGroupIdMutex.lock();
@@ -875,6 +865,7 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
         return;
     }
     struct sockaddr_in serv_Addr;
+    char buffer[1025];
     struct sockaddr_in sk_addr;   // address settings for bind()
     struct hostent *server;
     int tmpSocket;
@@ -907,7 +898,6 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
 
     if(connect(tmpSocket, (struct sockaddr*)&serv_Addr, sizeof(serv_Addr)) < 0)
     {
-        std::cout << "failed to connect to server at: " << ntohs(serv_Addr.sin_addr.s_addr) << std::endl;
         perror("could not connect ");
         //exit(0);
         return;
@@ -916,6 +906,10 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     if(tmpSocket > *maxfds){
         *maxfds = tmpSocket;
     }
+    bzero(buffer, sizeof(buffer));
+    read(tmpSocket, buffer, sizeof(buffer));
+    std::cout << "buffer on read: " << buffer << std::endl;
+    serverCommand(tmpSocket, maxfds, buffer);
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
 }
 void handleServerKeepAlive()
@@ -932,10 +926,10 @@ void handleServerKeepAlive()
             std::string msg;
             if(pos != messagesToBeSent.end()){
                 int msgNum = pos->second.size();
-                msg = "01 KEEPALIVE, " + std::to_string(msgNum) + " 04";
+                msg = "\1KEEPALIVE, " + std::to_string(msgNum) + "\4";
             }
             else{
-                msg = "01 KEEPALIVE, 0 04";
+                msg = "\1KEEPALIVE, 0\4";
             }
             messegesToBeSentMutex.unlock();
             send(socket, msg.c_str(), strlen(msg.c_str()), 0);
