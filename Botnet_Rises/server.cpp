@@ -916,7 +916,6 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     if(tmpSocket > *maxfds){
         *maxfds = tmpSocket;
     }
-
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
 }
 void handleServerKeepAlive()
