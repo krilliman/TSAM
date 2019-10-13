@@ -98,6 +98,8 @@ std::map<int, Server*> servers;         // Lookup table for per Server informati
 std::string myName;
 std::map<std::string, std::vector<std::string>> serverMessages;
 std::map<std::string, std::vector<std::string>> messagesToBeSent;
+char begin = '\1';
+char end = '\4';
 
 Server *currentServer = new Server(0);
 
@@ -188,14 +190,12 @@ void closeServer(int serverSocket, int *maxfds)
 {
     // Remove client from the clients list
     //std::string groupName = nameByPort.find(serverSocket)->second;
-    std::cout << "serverSocket: " << serverSocket << std::endl;
     if(servers.find(serverSocket) == servers.end()){
         std::cout << "server not found " << std::endl;
     }
     std::string groupName = servers.find(serverSocket)->second->name;
     auto pp = std::make_pair(servers.find(serverSocket)->second->ip, servers.find(serverSocket)->second->port);
 
-    std::cout << "groupName: " << groupName << std::endl;
     serversSockets.erase(groupName);
     serversByGroupId.erase(groupName);
     servers.erase(serverSocket);
@@ -205,17 +205,13 @@ void closeServer(int serverSocket, int *maxfds)
     // one has to be determined. Socket fd's can be reused by the Kernel,
     // so there aren't any nice ways to do this.
 
-    std::cout << "maxfds beofre if check line 194(closeclient): " << *maxfds << std::endl;
     if(*maxfds == serverSocket)
     {
         for(auto const& p : servers)
         {
-            std::cout << "before changeing maxfds " << *maxfds << std::endl;
             *maxfds = std::max(*maxfds, p.second->sock);
-            std::cout << "after changeing maxfds " << *maxfds << std::endl;
         }
     }
-    std::cout << "disconnecting from " << groupName << std::endl;
     // And remove from the list of open sockets.
 
     FD_CLR(serverSocket, &openSockets);
@@ -235,11 +231,9 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         }
         if(tokens[1] == myName) //Checking if the message was meant for this server or not
         {
-            std::cout << "This message was sent to me and the message is: " << tokens[2] << std::endl;
             auto pos = serverMessages.find(myName);
             if(pos != serverMessages.end()){
                 pos->second.push_back(msg);
-                std::cout << pos->second.size() << std::endl;
             }
             else
             {
@@ -250,7 +244,6 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         }
         else
         {
-            std::cout << "sendMSG function call on line 237 " << std::endl;
             sendMSG(tokens[1], msg.c_str());
         }
     }
@@ -279,16 +272,13 @@ void serverList(int socket, std::string groupName, char *buffer)
     sendSocket = serversSockets.find(groupName)->second;
     if(groupName == myName)
     {
-        std::cout << "inside groupNAme == myname" << std::endl;
         for(auto const & p : serversByGroupId){
             msg += p.first + "," + p.second.first + "," + std::to_string(p.second.second) + "; ";
-            std::cout << "msg: " << msg << std::endl;
         }
         send(socket, msg.c_str(), msg.length()-1, 0);
     }
     else if(sendSocket != 0)
     {
-        std::cout << "sendsocket =! 0" << std::endl;
         char response[1025];
         int nread;
         send(sendSocket, buffer, strlen(buffer), 0);
@@ -304,12 +294,10 @@ void serverList(int socket, std::string groupName, char *buffer)
 std::vector<std::string> split(const std::string& s, char delimiter)
 {
     std::string text = s;
-    std::string test1 = text.substr(0,2);
-    std::string test2 = text.substr(text.length()-2,text.length());
-//01SERVERS04
-    if(test1 == "01" && test2 == "04") // Checks if the command is from a server or not
+
+    if(text[0] == begin && text[text.length()-1] == end) // Checks if the command is from a server or not
     {
-        text = text.substr(2, text.length()-4);
+        text = text.substr(1, text.length()-2);
     }
 
     std::vector<std::string> tokens;
@@ -336,10 +324,9 @@ std::vector<std::string> split(const std::string& s, char delimiter)
 
 bool check(std::string check)
 {
-    std::string test1 = check.substr(0,2);
-    std::string test2 = check.substr(check.length()-2,check.length());
+    std::string test2 = check.substr(check.length()-1,check.length());
 
-    if(test1 == "01" && test2 == "04")
+    if(check[0] == begin && check[check.length()-1] == end)
     {
         return true;
     }
@@ -352,9 +339,7 @@ void getMSG(int socket, std::string groupName)
     auto pos = serverMessages.find(groupName);
     if(pos != serverMessages.end())
     {
-        std::cout << "inside serverMessages" << std::endl;
         msg = pos->second.front();
-        std::cout << "msg: " << msg << std::endl;
         pos->second.erase(pos->second.begin());
         send(socket, msg.c_str(),msg.length(),0);
         return;
@@ -364,7 +349,6 @@ void getMSG(int socket, std::string groupName)
 }
 void emptyMessagesToBeSent(std::string groupName, int serverSocket)
 {
-    std::cout << "groupName: " << groupName << std::endl;
     for(auto p : messagesToBeSent){
         for(auto i  : p.second){
             std::cout << "msg: " << i << std::endl;
@@ -384,35 +368,24 @@ void emptyMessagesToBeSent(std::string groupName, int serverSocket)
 }
 void sendMSG(std::string groupName, const char *msg)
 {
-    std::cout << "sendMSG " << std::endl;
     auto pos = serversSockets.find(groupName);
     if(pos == serversSockets.end()){
         auto toBeSentPos = messagesToBeSent.find(groupName);
         if(toBeSentPos == messagesToBeSent.end()){
-            std::cout << "groupName " << groupName << std::endl;
-            std::cout << "inserting into messagesToBeSent" << *msg << std::endl;
             std::vector<std::string> tmpVector;
             std::string s = msg;
-            std::cout << "s: " << s << std::endl;
             tmpVector.push_back(s);
             messagesToBeSent.insert(std::make_pair(groupName, tmpVector));
         }
         else{
             toBeSentPos->second.push_back(std::to_string(*msg));
         }
-        std::cout << "server with this group ID was not found " << std::endl;
         return;
     }
     int socket = pos->second;
 
-    std::string buffer = "01SENDMSG," + myName + "," + groupName + "," + msg + "04";
+    std::string buffer = "\1SENDMSG," + myName + "," + groupName + "," + msg + "\4";
     int bSent = send(socket, buffer.c_str(), strlen(buffer.c_str()), 0);
-    if(bSent > 0){
-        std::cout << "message send successfully" << std::endl;
-    }
-    else{
-        std::cout << "send message failed" << std::endl;
-    }
 }
 
 
@@ -421,18 +394,15 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
     std::string text = buffer;
     std::vector<std::string> tokens = split(text,',');
 
-
     for(auto s : tokens){
         std::cout << "token: " << s << std::endl;
     }
-    std::cout << "Testing if the command is legit" << std::endl;
     if(!check(text))
     {
-        printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
+        printf("Invalid command format, <Command>,<comma separated parameters>\n");
         return;
     }
     else if((tokens[0].compare("SERVERS")) == 0){
-        std::cout << "IM IN THE SERVERS COMMAND" << std::endl;
         serverList(serverSocket,myName,buffer);
     }
     else if((tokens[0].compare("LISTSERVERS")) == 0){
@@ -441,33 +411,29 @@ void serverCommand(int serverSocket, fd_set *openSockets, int *maxfds, char *buf
     else if((tokens[0].compare("SENDMSG")) == 0){
         auto pos = serverMessages.find(tokens[1]);
         if(pos == serverMessages.end()){
-            std::cout << "inserting " << tokens[3] << " to vector" << std::endl;
             std::vector<std::string> tmpVector;
             tmpVector.push_back(tokens[3]);
             serverMessages.insert(std::make_pair(tokens[1], tmpVector));
         }
         else{
-            std::cout << "inserting " << tokens[3] << " to vector" << std::endl;
             pos->second.push_back(tokens[3]);
         }
-        std::cout << "message from " << tokens[1] << " " << tokens[3] << std::endl;
     }
     else if(tokens[0].compare("KEEPALIVE") == 0){
         if(tokens.size() != 2){
-            printf("Invalid command format, format: <01><KEEPALIVE>,<No, messages><04>\n");
+            printf("Invalid command format, format: <KEEPALIVE>,<No, messages>\n");
             return;
         }
         servers[serverSocket]->checkedIn = true;
         int msg = stoi(tokens[1]);
         if(msg > 0){
-            std::string getmsg = "01GETMSG," + myName + "04";
+            std::string getmsg = "\1GETMSG," + myName + "\4";
             send(serverSocket, getmsg.c_str(), getmsg.length(), 0);
         }
-        std::cout << "keepaliveMSG from " << servers[serverSocket]->name << std::endl;
     }
     else if(tokens[0].compare("GETMSG") == 0){
         if(tokens.size() != 2){
-            printf("Invalid command format, format: <01><GETMSG>,<GROUP ID><04>\n");
+            printf("Invalid command format, format: <GETMSG>,<GROUP ID>\n");
             return;
         }
         emptyMessagesToBeSent(tokens[1], serverSocket);
@@ -494,8 +460,6 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
     }
     else if(serversByGroupId.size() > 4){
         //check a better way to do this
-        std::cout << std::endl;
-        std::cout << "WE ARE CLOSING THE CONNECTION!!" << std::endl;
         close(listenServerSock);
     }
     else
@@ -533,26 +497,34 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
             // First, accept  any new connections to the server on the listening socket
             if (FD_ISSET(listenServerSock,&readSockets))                              // Tests to se if listenSock is part of readSockets
             {
-                serverSock = accept(listenServerSock, (struct sockaddr *) &server,
-                                    &serverLen);                                        // Extracts the first connection request on the queue of pending connections
-                printf("accept***\n");                                          // returns a new fd referring to that socket
-                // Add new client to the list of open sockets
-                FD_SET(serverSock, &openSockets);
+                serverSock = accept(listenServerSock, (struct sockaddr *) &server,&serverLen);
+                if(servers.size() >= 5)
+                {
+                    std::cout << "Unabel to add a connection to me since I already have 5 connections " << std::endl;
+                    close(serverSock);
+                }
+                else
+                {
+                    printf("accept***\n");                                          // returns a new fd referring to that socket
+                    // Add new client to the list of open sockets
+                    FD_SET(serverSock, &openSockets);
 
-                // And update the maximum file descriptor
-                *maxfds = std::max(*maxfds, serverSock);
+                    // And update the maximum file descriptor
+                    *maxfds = std::max(*maxfds, serverSock);
 
-                // create a new server to store information.
-                servers[serverSock] = new Server(serverSock);
-                // this is just to fill in the maps for the incoming server
-                // could be a better way but since we need the get the server name
-                // i have no other idea how to get it
-                // ToDo need to figure out a way to do this properly
-                // ToDo when i did this like above we got the error of sending 01 SERVERS 04 between 2 servers
-                // Decrement the number of sockets waiting to be dealt with
-                n--;
-                printf("Servers connected on server: %d\n", servers.size());
-                //printf("size of map: %d \n", servers.size());
+                    // create a new server to store information.
+                    servers[serverSock] = new Server(serverSock);
+                    // this is just to fill in the maps for the incoming server
+                    // could be a better way but since we need the get the server name
+                    // i have no other idea how to get it
+                    // ToDo need to figure out a way to do this properly
+                    // ToDo when i did this like above we got the error of sending 01 SERVERS 04 between 2 servers
+                    // Decrement the number of sockets waiting to be dealt with
+                    n--;
+                    printf("Servers connected on server: %d\n", servers.size());
+                    //printf("size of map: %d \n", servers.size());
+                    
+                }
             }
             while(n-- > 0)
             {
@@ -584,6 +556,8 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                 if(serverSock > *maxfds){
                     *maxfds = serverSock;
                 }
+                struct timeval tv2 = {1, 0};
+                int timeout = select(0,NULL, NULL, NULL, &tv2);
                 if(servers.find(serverSock) != servers.end()){
                     if(servers[serverSock]->name == ""){
                         handleListServer(serverSock, 0, true, maxfds);
@@ -696,9 +670,9 @@ void handleClients(int listenClientSock, int clientPort, int *maxfds)
 
 void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 {
-    std::cout << "local commands " << std::endl;
     std::vector<std::string> tokens;
     std::string token;
+    
 
     // Split command into tokens for parsing
     std::stringstream stream(buffer);
@@ -708,7 +682,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 
     if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
     {
-        printf("Invalid command format, <01><Command>,<comma separated parameters><04>\n");
+        printf("Invalid command format, <<Command>,<comma separated parameters>\n");
         return;
     }
     else if((tokens[1].compare("LEAVE") == 0))
@@ -716,7 +690,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
         // for now lets just have everything space separated
         // just so we can get the functionality working
         if(tokens.size() != 5){
-            printf("Invalid format of LEAVE <01>LEAVE,IP,Port<04>");
+            printf("Invalid format of LEAVE LEAVE,IP,Port");
             return;
         }
         std::string ip = tokens[2];
@@ -783,12 +757,10 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     int nread;
     char buffer[1025];
     bzero(buffer, sizeof(buffer));
-    strcpy(buffer, "01SERVERS04");
-    std::cout << "send: " << buffer << std::endl;
+    strcpy(buffer, "\1SERVERS\4");
     nwrite = send(socket, buffer, strlen(buffer), 0);
     memset(buffer, 0, sizeof(buffer));
     nread = read(socket, buffer, sizeof(buffer));
-    std::cout << "read: " << buffer << std::endl;
     std::stringstream stream(buffer);
     std::string tmp = buffer;
     std::stack<std::string> s;
@@ -805,7 +777,6 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
             serversSockets.insert(std::make_pair(temp[0], socket));
             leaveMap.insert(std::make_pair(std::make_pair(temp[1], port), socket));
             if(servers.find(socket) == servers.end()){
-                std::cout << "create new server " << std::endl;
                 servers[socket] = new Server(socket);
             }
                 servers.find(socket)->second->name = temp[0];
@@ -843,11 +814,9 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
                 serversSockets.insert(std::make_pair(groupName, socket));
                 leaveMap.insert(std::make_pair(std::make_pair(ip, port), socket));
                 if(servers.find(socket) == servers.end()){
-                    std::cout << "create new server " << std::endl;
                     servers[socket] = new Server(socket);
                 }
                 for(auto const& i : servers){
-                    std::cout << "i.first: " << i.first << std::endl;
                 }
                 servers.find(socket)->second->name = groupName;
                 servers[socket]->ip = ip;
@@ -912,16 +881,13 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
 
     if(connect(tmpSocket, (struct sockaddr*)&serv_Addr, sizeof(serv_Addr)) < 0)
     {
-        std::cout << "failed to connect to server at: " << ntohs(serv_Addr.sin_addr.s_addr) << std::endl;
         perror("could not connect ");
         //exit(0);
         return;
     }
     FD_SET(tmpSocket, &openSockets);
     if(tmpSocket > *maxfds){
-        std::cout << "setting the maxfds: " << *maxfds << std::endl;
         *maxfds = tmpSocket;
-        std::cout << "setting the maxfds: " << *maxfds << std::endl;
     }
 
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
@@ -934,17 +900,16 @@ void handleServerKeepAlive()
         struct timeval tv = {20, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
         for(auto &server : servers){
-            //std::cout << "sending to server: " << server.second->name << std::endl;
             int socket = server.second->sock;
             //std::string msg = "01 SENDMSG, " + myName + " " + server.second->name + " this is a keepAlive message 04";
             auto pos = messagesToBeSent.find(server.second->name);
             std::string msg;
             if(pos != messagesToBeSent.end()){
                 int msgNum = pos->second.size();
-                msg = "01 KEEPALIVE, " + std::to_string(msgNum) + " 04";
+                msg = "\1KEEPALIVE, " + std::to_string(msgNum) + "\4";
             }
             else{
-                msg = "01 KEEPALIVE, 0 04";
+                msg = "\1KEEPALIVE, 0\4";
             }
             send(socket, msg.c_str(), strlen(msg.c_str()), 0);
         }
@@ -961,7 +926,6 @@ void scanForDisconnectedServers(int *maxfds)
                 int closeVal = close(server.second->sock);
                 if (closeVal != -1) {
                     //serverMutex.unlock();
-                    std::cout << "closeval: " << closeVal << std::endl;
                     closeServer(server.second->sock, maxfds);
                 }
             }
@@ -1054,9 +1018,6 @@ int main(int argc, char* argv[])
     //handleServers(listenServerSock, serverPort, servers, serversByGroupId);
     //handleConnection(argv[3], argv[4], serverPort); //HERE AFTER THE TEST
 
-    for(auto const& p : serversSockets){
-        std::cout << "p.first" << p.first << " p.second " << p.second << std::endl;
-    }
 
     bool finished = false;
 
