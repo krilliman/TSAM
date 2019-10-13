@@ -74,6 +74,8 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
 void serverList(int socket, std::string groupName, char *buffer);
 void sendMSG(std::string groupName, const char *msg);
 void getMSG(int socket, std::string groupName);
+std::vector<std::string> split(const std::string& s, char delimiter);
+bool check(std::string check);   
 
 // Note: map is not necessarily the most efficient method to use here,
 // especially for a server with large numbers of simulataneous connections,
@@ -302,6 +304,30 @@ void serverList(int socket, std::string groupName, char *buffer)
         msg = "I am not connected to that server, please try a different name. ";
         send(socket, msg.c_str(), msg.length()-1, 0);
     }
+}
+std::vector<std::string> split(const std::string& s, char delimiter)
+{
+   std::vector<std::string> tokens;
+   std::string token;
+   std::istringstream tokenStream(s);
+   while (std::getline(tokenStream, token, delimiter))
+   {
+      tokens.push_back(token);
+   }
+   return tokens;
+}
+
+bool check(std::string check)
+{
+    std::string test1 = check.substr(0,2);
+    std::string test2 = check.substr(check.length()-2,check.length());
+
+    if(test1 == "01" && test2 == "04")
+    {
+        return true;
+    }
+    else
+        return false;
 }
 void getMSG(int socket, std::string groupName)
 {
