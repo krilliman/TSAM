@@ -1,9 +1,8 @@
 //
-// Simple chat server for TSAM-409
+// Simple server for botnet activity
 //
-// Command line: ./chat_server 4000 
 //
-// Author: Jacky Mallett (jacky@ru.is)
+// Author: Kristmann ingi Kristjánsson && Helgi Rúnar Jóhannesson
 //
 #include <stdio.h>
 #include <errno.h>
@@ -60,8 +59,6 @@ public:
     std::string name = "";           // Limit length of name of client's user
     std::string ip = "";
     int port = 0;
-    int keepAliveMsg = 0;           //  remove this later
-    int keepAliveMsgMax = 0;        //  remove this later
     bool checkedIn = false;
     Server(int socket) : sock(socket){}
 
@@ -92,26 +89,24 @@ bool check(std::string check);
 
 //All our global variables.
 fd_set openSockets;
-std::map<std::string, int> serversSockets;
-std::map<std::string, std::pair<std::string, int>> serversByGroupId;
-std::map<std::pair<std::string,int>,int> leaveMap;
-std::map<int, Client*> clients;         // Lookup table for per Client information
-std::map<int, Server*> servers;         // Lookup table for per Server information
-std::string myName;
-std::map<std::string, std::vector<std::string>> serverMessages;
-std::map<std::string, std::vector<std::string>> messagesToBeSent;
-char begin = '\1';
-char end = '\4';
+std::map<std::string, int> serversSockets;                              // Lookup table to get sockets by groupName
+std::map<std::string, std::pair<std::string, int>> serversByGroupId;    // Lookup table to get <Ip,Port> by groupName
+std::map<std::pair<std::string,int>,int> leaveMap;                      // Lookup to get socket by <Ip,Port>
+std::map<int, Client*> clients;                                         // Lookup table for per Client information
+std::map<int, Server*> servers;                                         // Lookup table for per Server information
+std::string myName;                                                     // This servers name
+std::map<std::string, std::vector<std::string>> serverMessages;         // Lookup table for messages received from other servers
+std::map<std::string, std::vector<std::string>> messagesToBeSent;       // Lookup table for messages that client tried to send to but were not 1-hop away
 
 Server *currentServer = new Server(0);
 
 // mutex for maps
-std::mutex serverMutex;             //6
-std::mutex serversSocketsMutex;      //2
-std::mutex serversByGroupIdMutex;   //3
-std::mutex leaveMapMutex;           //4
-std::mutex serverMessagesMutex;     //1
-std::mutex messegesToBeSentMutex;        //5
+std::mutex serverMutex;             // Mutex for the servers Map
+std::mutex serversSocketsMutex;     // Mutex for serversSocket Map
+std::mutex serversByGroupIdMutex;   // Mutex for serversByGroupId Map
+std::mutex leaveMapMutex;           // Mutex for leaveMap
+std::mutex serverMessagesMutex;     // Mutex for serverMessages Map
+std::mutex messegesToBeSentMutex;   // Mutex for messegesToBeSent Map
 
 
 int open_socket(int portno)
@@ -202,6 +197,10 @@ void closeServer(int serverSocket, int *maxfds)
     std::string groupName = servers.find(serverSocket)->second->name;
     auto pp = std::make_pair(servers.find(serverSocket)->second->ip, servers.find(serverSocket)->second->port);
 
+    /*
+     * Here we the leaving socket from all our maps
+     * node that we also use mutex to lock each data structure so we dont get unexpected behavior
+     */
     serversSocketsMutex.lock();
     serversSockets.erase(groupName);
     serversSocketsMutex.unlock();
@@ -213,9 +212,7 @@ void closeServer(int serverSocket, int *maxfds)
     leaveMap.erase(pp);
     leaveMapMutex.unlock();
 
-    // If this client's socket is maxfds then the next lowest
-    // one has to be determined. Socket fd's can be reused by the Kernel,
-    // so there aren't any nice ways to do this.
+    // check if the socket leaveing is the current max file descriptor we need to update our maxfds
 
     if(*maxfds == serverSocket)
     {
@@ -225,10 +222,9 @@ void closeServer(int serverSocket, int *maxfds)
         }
     }
     // And remove from the list of open sockets.
-
     FD_CLR(serverSocket, &openSockets);
 }
-// Process command from client on the server
+// Process command from clients on the server
 void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buffer)
 {
     std::string text = buffer;
@@ -242,6 +238,7 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         }
         if(tokens[1] == myName) //Checking if the message was meant for this server or not
         {
+            //locking the data structure
             serverMessagesMutex.lock();
             auto pos = serverMessages.find(myName);//Iterates through the map to find if there's already message from that server.
             if(pos != serverMessages.end())
@@ -279,9 +276,6 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 void serverList(int socket, std::string groupName, char *buffer)
 {
     std::string msg = "\1SERVERS," + currentServer->name + "," + currentServer->ip + "," + std::to_string(currentServer->port) + ";";
-    serversSocketsMutex.lock();
-    serversSocketsMutex.unlock();
-
     serversByGroupIdMutex.lock();
     for(auto const & p : serversByGroupId){
         msg += p.first + "," + p.second.first + "," + std::to_string(p.second.second) + ";";
@@ -315,19 +309,20 @@ std::vector<std::string> split(const std::string& s, char delimiter)
     }
    return tokens;
 }
-//getMSG. Called when server calls getmsg to us and we respons with a message intended for them and then delete that part of the map.
+// getMSG. Called when server calls getmsg to us and we respons with
+// a message intended for them and then delete that part of the map.
 void getMSG(int socket, std::string groupName)
 {
-    std::cout << "inside getMSG: " << groupName  << std::endl;
     std::string msg;
+    // lock the data structure
     serverMessagesMutex.lock();
-    std::cout << "afterServerMessagesMutex" << std::endl;
     auto pos = serverMessages.find(groupName);
     if(pos != serverMessages.end())
     {
+        // pop one message from the vector
         msg = pos->second.front();
-        std::cout << "msg: " << msg << std::endl;
         pos->second.erase(pos->second.begin());
+        // send the message
         send(socket, msg.c_str(),msg.length(),0);
         serverMessagesMutex.unlock();
         return;
@@ -339,30 +334,40 @@ void getMSG(int socket, std::string groupName)
 //Called when a server we're not connected to requrests messages from us.
 void emptyMessagesToBeSent(std::string groupName, int serverSocket)
 {
+    // lock the data structure
     messegesToBeSentMutex.lock();
     auto pos = messagesToBeSent.find(groupName);
+    // enter if the group name is not found
     if(pos == messagesToBeSent.end()){
         std::string msg = "\1SEND_MSG," + myName + "," + groupName + ",No messages found\4";
         send(serverSocket, msg.c_str(), msg.length(), 0);
         messegesToBeSentMutex.unlock();
         return;
     }
+    // if the group name is found we loop over each server in the messageTobeSent
+    // and for each of the messages in the vector we send them over to the server
     for(auto s : pos->second){
         sendMSG(groupName, s.c_str());
-        struct timeval tv = {2, 0};   // sleep for ten minutes!
+        struct timeval tv = {1, 0};   // sleep for 1 second.
         int timeout = select(0, NULL, NULL, NULL, &tv);
     }
+    // delete the groupName from the data structure since the vector is should be empty
     messagesToBeSent.erase(groupName);
     messegesToBeSentMutex.unlock();
 }
 //Called when client calls sendmsg and we send it forward to the next server.
 void sendMSG(std::string groupName, const char *msg)
 {
+    // lock the data structure
     serversSocketsMutex.lock();
     auto pos = serversSockets.find(groupName);
+    // enter if groupName is not found in serversSockets
     if(pos == serversSockets.end()){
         messegesToBeSentMutex.lock();
         auto toBeSentPos = messagesToBeSent.find(groupName);
+        // if groupName is not found in messageTo be sent
+        // then we create a vector and push the msg into the vector
+        // then we make a pair of the groupName and the vector created
         if(toBeSentPos == messagesToBeSent.end()){
             std::vector<std::string> tmpVector;
             std::string s = msg;
@@ -377,9 +382,9 @@ void sendMSG(std::string groupName, const char *msg)
         serversSocketsMutex.unlock();
         return;
     }
+    // if the groupName is found we send the message to the server
     serversSocketsMutex.unlock();
     int socket = pos->second;
-
     std::string buffer = "\1SEND_MSG," + myName + "," + groupName + "," + msg + "\4";
     int bSent = send(socket, buffer.c_str(), strlen(buffer.c_str()), 0);
 }
@@ -389,18 +394,10 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
     std::string text = buffer;
     text = text.substr(1, text.length()-2);
     std::vector<std::string> tmp = split(text,';');
-
     std::vector<std::string> tokens;
-
-    for(auto s : tmp){
-        std::cout << "tmp: " << s << std::endl;
-    }
     for(auto i : tmp)
     {
         tokens = split(i,',');
-    }
-    for(auto s : tokens){
-        std::cout << "token: " << s << std::endl;
     }
     if((tokens[0].compare("SERVERS")) == 0){
         serverList(serverSocket,myName,buffer);
@@ -411,6 +408,9 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
     else if((tokens[0].compare("SEND_MSG")) == 0){
         serverMessagesMutex.lock();
         auto pos = serverMessages.find(tokens[1]);
+        // if we have not received messages for this group we create a vector
+        // push back the message from the server
+        // then make a pair of the groupName and the vector created
         if(pos == serverMessages.end()){
             std::vector<std::string> tmpVector;
             tmpVector.push_back(tokens[3]);
@@ -427,6 +427,7 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
             printf("Invalid command format, format: <KEEPALIVE>,<No, messages>\n");
             return;
         }
+        // set this to true so that our scanner knows that this server has checked in
         servers[serverSocket]->checkedIn = true;
         int msg = stoi(tokens[1]);
         if(msg > 0){
@@ -447,6 +448,8 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
             return;
         }
         std::string msg = "\1STATUSRESP," + myName + "," + tokens[1] + ",";
+        // loop over all messages that we have stored for servers that were not 1 hop a way
+        // when client sent the message and create a string to send to the server
         messegesToBeSentMutex.lock();
         for(auto i : messagesToBeSent){
             if(i.second.size() > 0){
@@ -458,6 +461,7 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
         send(serverSocket, msg.c_str(), msg.length(), 0);
     }
     else if(tokens[0].compare("STATUSRESP") == 0){
+        // take the respones form the statusREQ and print it out
         std::string msg;
         for(int i = 3; i < tokens.size(); i = i+2){
 
@@ -523,11 +527,14 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                                     &serverLen);                                        // Extracts the first connection request on the queue of pending connections
                 printf("accept***\n");                                          // returns a new fd referring to that socket
                 // Add new client to the list of open sockets
-                FD_SET(serverSock, &openSockets);
+                FD_SET(serverSock, &openSockets);                               // add the serversSock into open sockets
 
+                // if the serverSock is bigger the the max file descriptor then we update maxfds
                 if(serverSock > *maxfds){
                     *maxfds = serverSock;
                 }
+
+                // call this function so we can know the users info
                 handleListServer(serverSock, listenServerSock, true, maxfds);
 
 
@@ -676,14 +683,14 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
 {
     std::vector<std::string> tokens;
     std::string token;
-    
-
     // Split command into tokens for parsing
     std::stringstream stream(buffer);
 
     while(stream >> token)
         tokens.push_back(token);
 
+    // In local commands we have a diffrent format from the server/server
+    // format: 01 <Command> <Command Values> 04
     if((tokens[0].compare("01") != 0) || (tokens[tokens.size()-1].compare("04")) != 0)
     {
         printf("Invalid command format, <<Command>,<comma separated parameters>\n");
@@ -691,15 +698,16 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
     }
     else if((tokens[1].compare("LEAVE") == 0))
     {
-        // for now lets just have everything space separated
-        // just so we can get the functionality working
+        // Local leave command with te format 01 <Leave> <ip>,<Port> 04
         if(tokens.size() != 5){
-            printf("Invalid format of LEAVE LEAVE,IP,Port");
+            printf("Invalid format of LEAVE IP,Port");
             return;
         }
         std::string ip = tokens[2];
         int port = stoi(tokens[3]);
 
+        // lock the leaveMap data structure then disconnect the socket
+        // found with the following <ip><port> pair.
         leaveMapMutex.lock();
         int sockToDisconnect = leaveMap.find(std::make_pair(ip,port))->second;
         leaveMapMutex.unlock();
@@ -713,21 +721,18 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
         else{
             std::cout << "socket " << sockToDisconnect << " not found" << std::endl;
         }
-        leaveMapMutex.lock();
-        for(auto const& p : leaveMap){
-            std::cout << "p.first.first " << p.first.first <<  std::endl;
-            std::cout << "p.first.second " << p.first.second <<  std::endl;
-            std::cout << "p.second " << p.second <<  std::endl << std::endl;
-        }
-        leaveMapMutex.unlock();
     }
     else if((tokens[1].compare("CONNECTLOCAL") == 0))
     {
+        // connect to a local port
+        // mainly for testing server
         std::cout << "connection to local port " << tokens[2] << std::endl;
         handleConnection("127.0.0.1", tokens[2].c_str(), serverPort, maxfds);
     }
     else if((tokens[1].compare("LOCALSERVERS") == 0))
     {
+        // this command is to see all the local connected servers
+
         std::cout << "" << std::endl;
         std::cout << "CURRENT SERVERS" << std::endl;
         std::cout << "serversByGroupID" << std::endl;
@@ -739,20 +744,11 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
             std::cout << "" << std::endl;
         }
         serversByGroupIdMutex.unlock();
-        std::cout << "" << std::endl;
-        std::cout << "CURRENT SERVERS" << std::endl;
-        std::cout << "leaveMap" << std::endl;
-        leaveMapMutex.lock();
-        for(auto const& p : leaveMap){
-            std::cout << "p.first.first: " << p.first.first << std::endl;
-            std::cout << "p.first.second: " << std::to_string(p.first.second) << std::endl;
-            std::cout << "p.second: " << std::to_string(p.second) << std::endl;
-            std::cout << "" << std::endl;
-        }
-        leaveMapMutex.unlock();
         std::cout << "size of servers: " << servers.size() << std::endl << std::endl;
     }
     else if(tokens[1].compare("STATUSREQ") == 0){
+        // use this command to send a STATUSREQ to another server
+        // format: 01 STATUSREQ <GROUP_NAME> 04
         serversSocketsMutex.lock();
         auto pos = serversSockets.find(tokens[2]);
         if(pos != serversSockets.end()){
@@ -766,8 +762,7 @@ void localServerCommand(const char* buffer, int serverPort, int *maxfds)
         serversSocketsMutex.unlock();
     }
     else{
-        std::cout << "no command found, TOKEN[1]: " << tokens[1] << std::endl;
-        std::cout << "no command found, TOKEN[2]: " << tokens[2] << std::endl;
+        std::cout << "no command found"  << std::endl;
     }
 
 }
@@ -780,12 +775,17 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     bzero(buffer, sizeof(buffer));
     memset(buffer, 0, sizeof(buffer));
     std::string sendVal = "\1LISTSERVERS," + myName + "\4";
+
+    //send LISTSERVER command to the server that just connected
     nwrite = send(socket, sendVal.c_str(), sendVal.length(), 0);
     nread = read(socket, buffer, sizeof(buffer));
 
     std::string tmp = buffer;
     tmp = tmp.substr(9,tmp.length()-11);
     bool firstFound = false;
+    // split the buffer frist by ;
+    // then we split it by ,
+    // that should give us 3 elements 1:name, 2:ip, 3:port
     std::vector<std::string> firstSplit = split(tmp,';');
     for(auto i : firstSplit)
     {
@@ -794,6 +794,8 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
             continue;
         }
         if(!firstFound){
+            // if firstFound is false then the data in temp is the info about the server that just connected to us
+            // then we insert the data into all our data structures
             int port = stoi(temp[2]);
             serversByGroupIdMutex.lock();
             serversByGroupId.insert(std::make_pair(temp[0], std::make_pair(temp[1], port)));
@@ -806,6 +808,8 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
             leaveMapMutex.unlock();
             serverMutex.lock();
             if(servers.find(socket) == servers.end()){
+                // this triggers if we are making the inital connection
+                // but not if we are the server that is being connected to
                 servers[socket] = new Server(socket);
             }
             servers.find(socket)->second->name = temp[0];
@@ -823,6 +827,10 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
         else {
             //should not be needed since break; above
             if (!incomingConnection) {
+                // since we use this function both for incoming connections and for connecting to other servers
+                // we need to check if this is coming from the initial connection
+                // if this is coming from the initial connection we recursively try to connect to all other servers
+                // that the newly connected server is connected to
                 bool check = false;
                 serversByGroupIdMutex.lock();
                 if(serversByGroupId.find(temp[0]) == serversByGroupId.end()){
@@ -831,6 +839,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
                     handleConnection(temp[1].c_str(), temp[2].c_str(), listenServersPort, maxfds);
                 }
                 if(!check){
+                    // we where getting strange behavior when we unlocked on a unlocked mutex so had to check if the check above occured
                     serversByGroupIdMutex.unlock();
                 }
             }
@@ -840,6 +849,7 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
 
 void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds)
 {
+    // if our map is bigger then 4 we stop the recursion that is being called from handleListServer
     if(serversByGroupId.size() > 4){
         return;
     }
@@ -855,11 +865,20 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     bcopy((char *)server->h_addr, (char *)&serv_Addr.sin_addr.s_addr, server->h_length);
     serv_Addr.sin_port = htons(atoi(port));
 
+    struct timeval tv = {5, 0};
+
+
     tmpSocket = socket(AF_INET, SOCK_STREAM , 0);
     if(setsockopt(tmpSocket, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
     {
         perror("setsockopt failed: ");
     }
+    // set a timeout on the socket for 5 seconds
+    if(setsockopt(tmpSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv)) < 0)
+    {
+        perror("setsockopt failed: ");
+    }
+
     memset(&sk_addr, 0, sizeof(sk_addr));
 
     sk_addr.sin_family      = AF_INET;
@@ -886,8 +905,15 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
         *maxfds = tmpSocket;
     }
     bzero(buffer, sizeof(buffer));
-    read(tmpSocket, buffer, sizeof(buffer));
-    serverCommand(tmpSocket, maxfds, buffer);
+
+    // we expect a LISTSERVER from the server that we are connecting to
+    // we wait 5 seconds if the time
+    int nread = read(tmpSocket, buffer, sizeof(buffer));
+    if(nread != -1)
+    {
+        // if we get a response from the server we process the message
+        serverCommand(tmpSocket, maxfds, buffer);
+    }
     struct timeval tv2 = {1, 0};   // sleep for 1 sec!
     int timeout = select(0, NULL, NULL, NULL, &tv2);
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
@@ -895,6 +921,8 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
 //function for handling the keepalive for the server.
 void handleServerKeepAlive()
 {
+
+    //every one mintues we loop over all our connected servers and send the keepalive message
     bool finished = false;
     while(!finished)
     {
@@ -920,6 +948,10 @@ void handleServerKeepAlive()
 
 void scanForDisconnectedServers(int *maxfds)
 {
+    /*
+     * every 2 minutes or so wee loop over all or servers and check if the server has send us a keepalive message the last 2 minutes
+     * if this is false we drop the connection to the server
+     */
     bool finished = false;
     while(!finished) {
         struct timeval tv = {120, 0};   // sleep for ten minutes!
@@ -932,6 +964,7 @@ void scanForDisconnectedServers(int *maxfds)
                     closeServer(server.second->sock, maxfds);
                 }
             }
+            // set this to false so we know if he sends us keepalive message the next 2 minutes
             server.second->checkedIn = false;
             serverMutex.unlock();
         }
@@ -963,6 +996,7 @@ int main(int argc, char* argv[])
     std::map<std::string, std::string>::const_iterator pos = networkInfo.find("eth1");
     std::string groupName(argv[1]);
 
+    //set info for the current server
     currentServer->name = argv[1];
     currentServer->ip = pos->second;
     currentServer->port = atoi(argv[2]);
@@ -971,9 +1005,13 @@ int main(int argc, char* argv[])
     // Setup socket for server to listen to
     listenClientSock = open_socket(clientPort);                     // Open the socket for the client connections
 
+    //start a thread to handle all our clients
     std::thread clientThread(handleClients, listenClientSock, clientPort, &maxfds);
+    //start a thread to handle all our servers
     std::thread serverThread(handleServers,listenServerSock, serverPort, &maxfds);
+    // start a thread to handle all our keepAlive messages
     std::thread keepAliveThread(handleServerKeepAlive);
+    // start a thread to check if servers have checked in with a keepalive message
     std::thread scanDisconnectedThread(scanForDisconnectedServers, &maxfds);
 
     bool finished = false;
