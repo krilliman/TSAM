@@ -290,7 +290,6 @@ void serverList(int socket, std::string groupName, char *buffer)
     }
     serversByGroupIdMutex.unlock();
     msg += "\4";
-    std::cout << "msg: " << msg << std::endl;
     send(socket, msg.c_str(), msg.length(), 0);
 }
 std::vector<std::string> split(const std::string& s, char delimiter)
@@ -330,14 +329,18 @@ bool check(std::string check)
 }
 void getMSG(int socket, std::string groupName)
 {
+    std::cout << "inside getMSG: " << groupName  << std::endl;
     std::string msg;
     serverMessagesMutex.lock();
+    std::cout << "afterServerMessagesMutex" << std::endl;
     auto pos = serverMessages.find(groupName);
     if(pos != serverMessages.end())
     {
         msg = pos->second.front();
+        std::cout << "msg: " << msg << std::endl;
         pos->second.erase(pos->second.begin());
         send(socket, msg.c_str(),msg.length(),0);
+        serverMessagesMutex.unlock();
         return;
     }
     serverMessagesMutex.unlock();
@@ -356,9 +359,10 @@ void emptyMessagesToBeSent(std::string groupName, int serverSocket)
     }
     for(auto s : pos->second){
         sendMSG(groupName, s.c_str());
-        struct timeval tv = {10, 0};   // sleep for ten minutes!
+        struct timeval tv = {2, 0};   // sleep for ten minutes!
         int timeout = select(0, NULL, NULL, NULL, &tv);
     }
+    messagesToBeSent.erase(groupName);
     messegesToBeSentMutex.unlock();
 }
 void sendMSG(std::string groupName, const char *msg)
@@ -528,6 +532,9 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                 // Add new client to the list of open sockets
                 FD_SET(serverSock, &openSockets);
 
+                if(serverSock > *maxfds){
+                    *maxfds = serverSock;
+                }
                 handleListServer(serverSock, listenServerSock, true, maxfds);
 
 
@@ -571,25 +578,6 @@ void handleServers(int listenServerSock, int serverPort, int *maxfds)
                         }
                     }
                 }
-                if(serverSock > *maxfds){
-                    *maxfds = serverSock;
-                }
-                /*
-                struct timeval tv2 = {1, 0};   // sleep for 1 sec!
-                int timeout = select(0, NULL, NULL, NULL, &tv2);
-                serverMutex.lock();
-                bool check = false;
-                if(servers.find(serverSock) != servers.end()){
-                    if(servers[serverSock]->name == ""){
-                        check = true;
-                        serverMutex.unlock();
-                        handleListServer(serverSock, 0, true, maxfds);
-                    }
-                }
-                if(!check){
-                    serverMutex.unlock();
-                }
-                */
             }
         }
     }
@@ -796,21 +784,19 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     int nread;
     char buffer[1025];
     bzero(buffer, sizeof(buffer));
+    memset(buffer, 0, sizeof(buffer));
     std::string sendVal = "\1LISTSERVERS," + myName + "\4";
     nwrite = send(socket, sendVal.c_str(), sendVal.length(), 0);
     nread = read(socket, buffer, sizeof(buffer));
-    std::cout << "buffer after read " << sendVal << ": " << buffer << std::endl;
     //std::stringstream stream(buffer);
 
     std::string tmp = buffer;
     tmp = tmp.substr(9,tmp.length()-11);
-    std::cout << "tmp: " << tmp << std::endl;
     //std::stack<std::string> s;
     bool firstFound = false;
     std::vector<std::string> firstSplit = split(tmp,';');
     for(auto i : firstSplit)
     {
-        std::cout << "i: " << i << std::endl;
         std::vector<std::string> temp = split(i,',');
         if(temp[0] == myName){
             continue;
@@ -908,8 +894,9 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     }
     bzero(buffer, sizeof(buffer));
     read(tmpSocket, buffer, sizeof(buffer));
-    std::cout << "buffer on read: " << buffer << std::endl;
     serverCommand(tmpSocket, maxfds, buffer);
+    struct timeval tv2 = {1, 0};   // sleep for 1 sec!
+    int timeout = select(0, NULL, NULL, NULL, &tv2);
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
 }
 void handleServerKeepAlive()
