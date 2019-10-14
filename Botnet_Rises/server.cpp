@@ -342,7 +342,7 @@ void emptyMessagesToBeSent(std::string groupName, int serverSocket)
     messegesToBeSentMutex.lock();
     auto pos = messagesToBeSent.find(groupName);
     if(pos == messagesToBeSent.end()){
-        std::string msg = "\1SENDMSG," + myName + "," + groupName + ",No messages found\4";
+        std::string msg = "\1SEND_MSG," + myName + "," + groupName + ",No messages found\4";
         send(serverSocket, msg.c_str(), msg.length(), 0);
         messegesToBeSentMutex.unlock();
         return;
@@ -380,7 +380,7 @@ void sendMSG(std::string groupName, const char *msg)
     serversSocketsMutex.unlock();
     int socket = pos->second;
 
-    std::string buffer = "\1SENDMSG," + myName + "," + groupName + "," + msg + "\4";
+    std::string buffer = "\1SEND_MSG," + myName + "," + groupName + "," + msg + "\4";
     int bSent = send(socket, buffer.c_str(), strlen(buffer.c_str()), 0);
 }
 //Processes commands that are sent to the server and sent by the server.
@@ -408,7 +408,7 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
     else if((tokens[0].compare("LISTSERVERS")) == 0){
         serverList(serverSocket,tokens[1],buffer);
     }
-    else if((tokens[0].compare("SENDMSG")) == 0){
+    else if((tokens[0].compare("SEND_MSG")) == 0){
         serverMessagesMutex.lock();
         auto pos = serverMessages.find(tokens[1]);
         if(pos == serverMessages.end()){
