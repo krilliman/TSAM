@@ -431,11 +431,11 @@ void serverCommand(int serverSocket, int *maxfds, char *buffer)
         servers[serverSocket]->checkedIn = true;
         int msg = stoi(tokens[1]);
         if(msg > 0){
-            std::string getmsg = "\1GETMSG," + myName + "\4";
+            std::string getmsg = "\1GET_MSG," + myName + "\4";
             send(serverSocket, getmsg.c_str(), getmsg.length(), 0);
         }
     }
-    else if(tokens[0].compare("GETMSG") == 0){
+    else if(tokens[0].compare("GET_MSG") == 0){
         if(tokens.size() != 2){
             printf("Invalid command format, format: <GETMSG>,<GROUP ID>\n");
             return;
@@ -775,20 +775,26 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
     bzero(buffer, sizeof(buffer));
     memset(buffer, 0, sizeof(buffer));
     std::string sendVal = "\1LISTSERVERS," + myName + "\4";
-
     //send LISTSERVER command to the server that just connected
     nwrite = send(socket, sendVal.c_str(), sendVal.length(), 0);
     nread = read(socket, buffer, sizeof(buffer));
-
+    if(nread == -1){
+        perror("no response from server");
+        return;
+    }
+    std::cout << "in handlelist buffer: " << buffer << std::endl;
+    std::cout << "nread: " << nread << std::endl;
     std::string tmp = buffer;
     tmp = tmp.substr(9,tmp.length()-11);
     bool firstFound = false;
+    std::cout << "tmp: " << tmp << std::endl;
     // split the buffer frist by ;
     // then we split it by ,
     // that should give us 3 elements 1:name, 2:ip, 3:port
     std::vector<std::string> firstSplit = split(tmp,';');
     for(auto i : firstSplit)
     {
+        std::cout << "i: " << i << std::endl;
         std::vector<std::string> temp = split(i,',');
         if(temp[0] == myName){
             continue;
@@ -846,7 +852,6 @@ void handleListServer(int socket, int listenServersPort, bool incomingConnection
         }
     }
 }
-
 void handleConnection(const char* ipAddress, const char* port, int listenServersPort, int *maxfds)
 {
     // if our map is bigger then 4 we stop the recursion that is being called from handleListServer
@@ -865,7 +870,7 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     bcopy((char *)server->h_addr, (char *)&serv_Addr.sin_addr.s_addr, server->h_length);
     serv_Addr.sin_port = htons(atoi(port));
 
-    struct timeval tv = {5, 0};
+    struct timeval tv = {10, 0};
 
 
     tmpSocket = socket(AF_INET, SOCK_STREAM , 0);
@@ -909,6 +914,8 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     // we expect a LISTSERVER from the server that we are connecting to
     // we wait 5 seconds if the time
     int nread = read(tmpSocket, buffer, sizeof(buffer));
+    std::cout << "in handleconnection: " << buffer  << std::endl;
+    std::cout << "nread in connection: " << nread << std::endl;
     if(nread != -1)
     {
         // if we get a response from the server we process the message
@@ -916,6 +923,7 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     }
     struct timeval tv2 = {1, 0};   // sleep for 1 sec!
     int timeout = select(0, NULL, NULL, NULL, &tv2);
+    std::cout << "entering handleListServer "  << std::endl;
     handleListServer(tmpSocket, listenServersPort, false, maxfds);
 }
 //function for handling the keepalive for the server.
