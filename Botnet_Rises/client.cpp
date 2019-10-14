@@ -69,6 +69,13 @@ int main(int argc, char* argv[])
     bool finished;
     int set = 1;                              // Toggle for setsockopt
 
+    time_t rawtime;
+    struct tm * timeinfo;
+    time (&rawtime);
+    timeinfo = localtime (&rawtime);
+    char *data = asctime(timeinfo);
+    data[strlen(data)-1] = '\0';                         
+
     if(argc != 3)
     {
         printf("Usage: chat_client <ip  port>\n");
@@ -132,6 +139,10 @@ int main(int argc, char* argv[])
         {
             perror("send() to server failed: ");
             finished = true;
+        }
+        else
+        {
+            std::cout << "[" << data << "]" << buffer << std::endl;
         }
 
     }

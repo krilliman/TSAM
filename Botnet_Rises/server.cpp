@@ -300,10 +300,6 @@ std::vector<std::string> split(const std::string& s, char delimiter)
 
    while(std::getline(tokenStream, token, delimiter))
    {
-        if(token[0] == ' ')
-        {
-            token = token.substr(1,token.size());
-        }
         tokens.push_back(token);
    }
 
@@ -854,11 +850,20 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
     serv_Addr.sin_family = AF_INET;
     bcopy((char *)server->h_addr, (char *)&serv_Addr.sin_addr.s_addr, server->h_length);
     serv_Addr.sin_port = htons(atoi(port));
+ 
+    struct timeval timeout1;
+    timeout1.tv_sec = 5;
+    timeout1.tv_usec = 0;
 
     tmpSocket = socket(AF_INET, SOCK_STREAM , 0);
     if(setsockopt(tmpSocket, SOL_SOCKET, SO_REUSEADDR, &set, sizeof(set)) < 0)
     {
         perror("setsockopt failed: ");
+    }
+    
+    if(setsockopt(tmpSocket,SOL_SOCKET,SO_RCVTIMEO,(char *)&timeout1, sizeof(timeout1)) < 0)
+    {
+        perror("setsockopt failed\n");
     }
     memset(&sk_addr, 0, sizeof(sk_addr));
 
@@ -886,11 +891,14 @@ void handleConnection(const char* ipAddress, const char* port, int listenServers
         *maxfds = tmpSocket;
     }
     bzero(buffer, sizeof(buffer));
-    read(tmpSocket, buffer, sizeof(buffer));
-    serverCommand(tmpSocket, maxfds, buffer);
-    struct timeval tv2 = {1, 0};   // sleep for 1 sec!
-    int timeout = select(0, NULL, NULL, NULL, &tv2);
-    handleListServer(tmpSocket, listenServersPort, false, maxfds);
+    int nread =read(tmpSocket, buffer, sizeof(buffer));
+    if(nread != -1)
+    {
+        serverCommand(tmpSocket, maxfds, buffer); 
+    }
+        struct timeval tv2 = {1, 0};   // sleep for 1 sec!
+        int timeout = select(0, NULL, NULL, NULL, &tv2);
+    handleListServer(tmpSocket, listenServersPort, false, maxfds);  
 }
 //function for handling the keepalive for the server.
 void handleServerKeepAlive()
